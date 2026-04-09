@@ -1,0 +1,29 @@
+{
+  "name": "save-buddy",
+  "version": "1.0.0",
+  "description": "Preserve your Claude Code buddy companion after Anthropic removes the feature",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jrykn/save-buddy"
+  },
+  "scripts": {
+    "test": "node --test test/test-prng.js test/test-sprites.js test/test-util.js",
+    "test:prng": "node --test test/test-prng.js",
+    "test:sprites": "node --test test/test-sprites.js",
+    "test:util": "node --test test/test-util.js",
+    "test:api": "node test/test-api.js",
+    "install-buddy": "node install.js",
+    "uninstall-buddy": "node uninstall.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "axios": "^1.8.0",
+    "json5": "^2.2.3",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

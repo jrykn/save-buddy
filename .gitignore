@@ -1,0 +1,18 @@
+node_modules/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Runtime state (written by hooks and MCP server)
+state/
+previous-statusline.json
+companion-backup.json
+
+# Build/review artifacts
+.reviews/
+.claude/
+
+# Installer backup files
+*.buddy-backup-*
+*.save-buddy.tmp

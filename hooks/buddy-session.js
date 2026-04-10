@@ -3,12 +3,12 @@
 // buddy-session.js - Fire a hatch-style reaction when a session starts or resumes.
 
 // 2026-04-09: Use shared state.js, fix missing pushRecent (code review #10).
-import { readFileSync, unlinkSync } from 'fs';
+import { readFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { basename, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { getCompanion, isMuted } from '../server/companion.js';
-import { BUDDY_DIR, REACTION_PATH } from '../server/paths.js';
+import { REACTION_PATH } from '../server/paths.js';
 import { localReaction } from '../server/reactions.js';
 import { readState, writeState, pushRecent } from '../server/state.js';
 import { atomicWrite } from '../server/util.js';
@@ -29,18 +29,6 @@ try {
 
 if (hookContext.source && !['startup', 'resume'].includes(hookContext.source)) {
   process.exit(0);
-}
-
-// 2026-04-10: Reset persisted statusline left-width on session start. The
-// statusline wrapper persists max leftWidth across renders to keep the buddy
-// column stable, but the value should not survive across sessions because the
-// HUD content (and therefore the natural leftWidth) can differ wildly between
-// projects/terminals/HUD presets. Resetting per session lets the value
-// re-converge from scratch.
-if (hookContext.source === 'startup') {
-  try {
-    unlinkSync(join(BUDDY_DIR, 'state', 'left-width.txt'));
-  } catch {}
 }
 
 const state = readState();

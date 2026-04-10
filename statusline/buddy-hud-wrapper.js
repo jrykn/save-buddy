@@ -3,7 +3,7 @@
 // buddy-hud-wrapper.js - Chains any existing statusline and appends buddy sprite + bubble.
 
 import { execFileSync } from 'child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 import { bold, colorize, dim, italic, magenta } from '../server/ansi.js';
 import { getCompanion, isMuted } from '../server/companion.js';
@@ -234,33 +234,15 @@ try {
   const rightWidth = Math.max(...rightBlock.map((line) => visualWidth(line)), 0);
 
   // 2026-04-10: Position the buddy to the right of the widest HUD line (2-char
-  // gap). CRITICAL: leftWidth must be STABLE across renders, not just within
-  // a single render. If the HUD's max line width varies tick-to-tick (e.g., as
-  // numbers in the cost row grow, or activity indicators come and go), the
-  // buddy column shifts horizontally between renders. Claude Code's overwrite
-  // mechanism only clears the cells the new render writes to, so the OLD
-  // sprite at the OLD column survives as a "ghost" sprite. Result: user sees
-  // two sprites at different X offsets on the screen.
-  //
-  // Fix: persist the maximum leftWidth ever observed in this session to a
-  // state file. Each render uses max(currentMaxHud, persistedMax). The value
-  // only grows, never shrinks, so the sprite column stays put.
+  // gap). leftWidth tracks ONLY the current render. A previous attempt to
+  // persist leftWidth via a state file caused stale values from one session
+  // to leak into other long-running sessions, with catastrophic visual results
+  // (buddy shoved 70+ columns to the right because a different session had
+  // grown leftWidth to 123). Each render computes its own value from current
+  // HUD lines. The "ghost sprite" duplication bug must be solved another way.
   let cols = detectTerminalWidth(stdin);
-  const currentMaxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
-  const leftWidthStatePath = join(BUDDY_DIR, 'state', 'left-width.txt');
-  let persistedLeftWidth = 0;
-  try {
-    const v = parseInt(readFileSync(leftWidthStatePath, 'utf-8'), 10);
-    if (Number.isFinite(v) && v > 0) persistedLeftWidth = v;
-  } catch {}
-  let leftWidth = hudLines > 0 ? Math.max(currentMaxHudWidth, persistedLeftWidth) : 0;
-  if (leftWidth > persistedLeftWidth && hudLines > 0) {
-    try {
-      mkdirSync(join(BUDDY_DIR, 'state'), { recursive: true });
-      writeFileSync(leftWidthStatePath, String(leftWidth));
-    } catch {}
-  }
-  const maxHudWidth = currentMaxHudWidth; // keep alias for the cap check below
+  const maxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
+  let leftWidth = hudLines > 0 ? maxHudWidth : 0;
 
   // 2026-04-10: Sanity check detected cols. If the HUD is wider than our detected
   // terminal width, the detection is unreliable (you can't have a HUD wider than

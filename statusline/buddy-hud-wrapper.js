@@ -299,28 +299,23 @@ try {
     output.push(`${left}  ${right}`);
   }
 
-  // 2026-04-10: Append \x1b[K (erase to end of line) to every output line.
+  // 2026-04-10: ACTUAL ROOT CAUSE of the "cut in half" sprite bug.
   //
-  // ROOT CAUSE of the ghost-sprite bug: when total output width varies between
-  // renders (the HUD activity line swings from 61 to 174+ visual chars), ghost
-  // characters from wider previous renders survive to the right of the current
-  // render's content. Space-padding to maxVisual within a render does NOT help
-  // because maxVisual itself varies across renders.
+  // Claude Code processes statusline output with:
+  //   stdout.trim().split("\n").flatMap((j) => j.trim() || []).join("\n")
   //
-  // \x1b[K tells the terminal "erase from the cursor position to the end of
-  // the line". The terminal erases old content at positions beyond our current
-  // line's width, eliminating ghost sprites regardless of width variation,
-  // concurrent renders, or terminal width detection accuracy.
+  // This trims EVERY LINE individually. Lines that start with padding spaces
+  // (buddy-only rows below the HUD) get their leading spaces stripped, slamming
+  // the buddy content to column 0. The sprite renders correctly on HUD rows
+  // (where content starts with non-whitespace HUD text) but jumps to the left
+  // margin on rows below the HUD, cutting the sprite in half.
   //
-  // The upstream HUD (tail-claude-hud) already emits \x1b[K at the end of each
-  // of its lines. That mid-line \x1b[K clears old content between the HUD and
-  // our buddy block. Our trailing \x1b[K clears old content after the buddy.
-  // Together they cover the full line.
-  //
-  // This is the same mechanism Ink uses internally for Claude Code's native
-  // buddy rendering: each line is followed by an erase-to-end-of-line to
-  // prevent ghost artifacts from previous frames.
-  const final = output.map((line) => line + '\x1b[K');
+  // Fix: prefix every line with \x1b[0m (ANSI SGR reset). The ESC character
+  // (U+001B) is NOT whitespace, so .trim() stops there and preserves our
+  // padding spaces. The reset has no visual effect since our content sets its
+  // own attributes via colorize() calls. The trailing \x1b[K clears any stale
+  // content from previous renders.
+  const final = output.map((line) => '\x1b[0m' + line + '\x1b[K');
   process.stdout.write(`${final.join('\n')}\n`);
 } catch {
   // 2026-04-10: Catch fallback must also emit fixed-height output with \x1b[K.
@@ -335,12 +330,12 @@ try {
       : [];
     const padded = [];
     for (let i = 0; i < BUDDY_RESERVED_HEIGHT; i += 1) {
-      padded.push((fallbackLines[i] || '') + '\x1b[K');
+      padded.push('\x1b[0m' + (fallbackLines[i] || '') + '\x1b[K');
     }
     process.stdout.write(`${padded.join('\n')}\n`);
   } catch {
     // Last resort: emit 8 blank lines with \x1b[K to maintain line count
-    const blank = Array.from({ length: BUDDY_RESERVED_HEIGHT }, () => '\x1b[K');
+    const blank = Array.from({ length: BUDDY_RESERVED_HEIGHT }, () => '\x1b[0m\x1b[K');
     process.stdout.write(`${blank.join('\n')}\n`);
   }
   process.exit(0);

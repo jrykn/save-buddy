@@ -126,15 +126,27 @@ Bones are recomputed from the seed every time. Only the name and personality are
 
 ### Will this cost me anything in tokens or money?
 
-No additional cost beyond what the native buddy already had. save-buddy calls the same `buddy_react` API endpoint that Claude Code's native buddy feature used, with the same payload shape and the same OAuth-authenticated flow. Based on community research, that endpoint has historically been provided at no additional charge to Claude Code users, routes to Claude 3.5 Sonnet server-side under a small `max_tokens` budget per reaction, and is not counted against normal Claude Code usage quotas. Anthropic operates the endpoint, not save-buddy, and save-buddy cannot make guarantees about its future pricing or availability.
+**No additional cost beyond what the native buddy already had.** save-buddy calls the same `buddy_react` endpoint Claude Code's native buddy used, which has historically been provided at no additional charge and has not counted against normal Claude Code usage quotas.
 
-If Anthropic deprecates or removes the endpoint, save-buddy degrades gracefully to local fallback reaction templates (see `server/reactions.js`). Reactions keep appearing, they just come from a small deterministic template bank instead of a live model.
+<details>
+<summary><b>More detail</b></summary>
 
-If the deprecation is permanent and a live model fallback becomes desirable, the cleanest path is to route reactions through Claude Haiku 4.5 via the standard Claude API, using the user's existing OAuth token with a very small `max_tokens` cap. Haiku 4.5 generally outperforms Claude 3.5 Sonnet on recent benchmarks and is priced cheaply enough that a ~100-token reaction is a fraction of a cent. That fallback is not implemented today because the original endpoint still works, and save-buddy's goal is fidelity to the original experience.
+save-buddy calls the `buddy_react` API endpoint with the same payload shape and the same OAuth-authenticated flow as the native buddy. Community research indicates the endpoint routes to Claude 3.5 Sonnet server-side under a small `max_tokens` budget per reaction. Anthropic operates the endpoint, not save-buddy, so save-buddy cannot make guarantees about its future pricing or availability.
+
+If Anthropic deprecates or removes the endpoint, save-buddy degrades gracefully to local fallback reaction templates (`server/reactions.js`). Reactions keep appearing; they just come from a small deterministic template bank instead of a live model.
+
+If a live-model fallback becomes desirable after a permanent deprecation, the cleanest path is to route reactions through Claude Haiku 4.5 via the standard Claude API using the user's existing OAuth token and a very small `max_tokens` cap. Haiku 4.5 generally outperforms Claude 3.5 Sonnet on recent benchmarks and is priced cheaply enough that a ~100-token reaction is a fraction of a cent. That fallback is not implemented today because the original endpoint still works and save-buddy's goal is fidelity to the original experience.
+
+</details>
 
 ### Which operating systems are supported?
 
-Windows, macOS, and Linux. save-buddy is a Node.js application that requires Node.js 20 or later. All paths are resolved with `path.join()` and `process.env.HOME || process.env.USERPROFILE`, so nothing is hard-coded to a specific platform. The cross-platform test matrix:
+**Windows, macOS, and Linux.** save-buddy is a Node.js application that requires Node.js 20 or later. Nothing is hard-coded to a specific platform.
+
+<details>
+<summary><b>More detail and compatibility matrix</b></summary>
+
+All paths are resolved with `path.join()` and `process.env.HOME || process.env.USERPROFILE`, which works on every supported OS without any branching.
 
 | Platform | Status | Notes |
 |---|---|---|
@@ -146,78 +158,175 @@ Windows, macOS, and Linux. save-buddy is a Node.js application that requires Nod
 
 The only platform-specific dependency is `git`, which the `npx save-buddy` bootstrapper uses to clone the repository to `~/.save-buddy`. Git is virtually always present on developer machines; if it is not, the manual install instructions use the same clone command.
 
+</details>
+
 ### Does the shell I use matter?
 
-No. save-buddy does not run shell scripts. The installer, hooks, and status line wrapper are all Node.js scripts invoked via `node` (or the `node` binary found through `process.execPath`). They work identically in PowerShell, cmd, Git Bash, zsh, bash, fish, Nushell, Windows Terminal, iTerm2, GNOME Terminal, Alacritty, Kitty, WezTerm, and any other terminal emulator that Claude Code itself runs in.
+**No.** save-buddy runs in any terminal emulator and any shell Claude Code itself runs in. All scripts are Node.js, invoked directly via `node`.
+
+<details>
+<summary><b>More detail</b></summary>
+
+The installer, hooks, and status line wrapper are all Node.js scripts invoked via `node` (or the `node` binary found through `process.execPath`). They work identically in PowerShell, cmd, Git Bash, zsh, bash, fish, Nushell, Windows Terminal, iTerm2, GNOME Terminal, Alacritty, Kitty, WezTerm, and any other terminal emulator you might use.
 
 If your existing status line command is a shell script (for example, `bash ~/.claude/statusline.sh`), save-buddy preserves and chains it transparently. The wrapper executes the previous command via `execFileSync` with explicit argument arrays, so no shell interpretation happens on the save-buddy side.
 
+</details>
+
 ### Can I hatch a new companion if I never had one before?
 
-Not directly, yet. The native buddy's hatching flow makes a structured-output call to the main Claude API with a specific system prompt, asks the model to generate a name and personality, and writes the result to `.claude.json`. save-buddy does not currently replicate this step, because faithfully reproducing the hatching requires the Claude Code UI's modal animation flow, and the priority has been preserving the experience for users who already have hatched companions.
+**Not directly, yet.** save-buddy does not currently replicate the native hatching flow. Four workarounds exist, from most faithful to least.
 
-There are three workarounds depending on how much effort you want to spend:
+<details>
+<summary><b>Workarounds and design for a proper hatching tool</b></summary>
 
-1. **Manually hatch your companion.** Add a `companion` object to your `~/.claude.json` with three fields: `name` (any string up to 14 characters), `personality` (any sentence), and `hatchedAt` (a Unix millisecond timestamp). save-buddy will read this object on next render, regenerate the bones from your `accountUuid`, and display your new companion. The species, eye, hat, rarity, and stats are determined by your account - you cannot change those without changing your account.
+The native buddy's hatching flow makes a structured-output call to the Claude API with a specific system prompt, asks the model to generate a name and personality, and writes the result to `.claude.json`. save-buddy focuses on preserving the experience for users who already hatched a companion, which is why hatching is not a first-class feature yet.
 
-2. **Ask Claude to generate one for you.** In your Claude Code session, run `/buddy` (which will show a prompt indicating you have no companion), then ask Claude directly: "Please generate a name and one-sentence personality for a common penguin companion with high DEBUGGING and low PATIENCE, then save it to my `.claude.json`." Claude can use the MCP tools provided by save-buddy plus the Edit tool to construct the entry. The result will match the native hatching tone because it is also generated by Claude.
+**Workaround 1 (most faithful): Roll back Claude Code, hatch natively, roll forward, install save-buddy.** If you still have access to an older Claude Code version that includes the buddy feature (v2.1.94 or earlier), you can use Anthropic's own hatching flow and then upgrade.
 
-3. **Build in a first-class hatching flow.** If someone wants to contribute a proper hatching experience to save-buddy, the cleanest design would add a new MCP tool (`buddy_hatch`) that: reads the user's bones, makes a Claude API call using the user's OAuth token with a system prompt mirroring the native `fD1` prompt from the forensic reference, parses the structured response, writes it to `.claude.json` via atomic write, and returns the new companion card. This is a ~100-line addition and is welcome as a pull request. The reason it is not already implemented is that the hatching flow in the original was tied to a specific UI animation that cannot be reproduced from outside Claude Code, so save-buddy has intentionally focused on the static companion experience first.
+```bash
+# 1. Install the old version with buddy still enabled
+npm install -g @anthropic-ai/claude-code@2.1.94
+
+# 2. Launch Claude Code and run /buddy to trigger the hatching animation
+#    You will see the egg-cracking sequence and get a name and personality
+#    generated by the native flow.
+claude
+
+# 3. Once hatched, your companion is persisted in ~/.claude.json under
+#    the "companion" key. Verify it exists:
+cat ~/.claude.json | grep -A3 companion      # macOS/Linux
+type %USERPROFILE%\.claude.json | findstr companion  # Windows cmd
+
+# 4. Upgrade Claude Code back to the latest version
+npm install -g @anthropic-ai/claude-code@latest
+
+# 5. Install save-buddy, which will read your now-hatched companion
+npx save-buddy
+```
+
+Your companion's bones (species, eye, hat, rarity, stats) are derived from your `accountUuid`, so they will be the same across Claude Code versions. The name and personality from the native hatching will be preserved in `.claude.json` and save-buddy will pick them up automatically. This is the closest you can get to the original experience.
+
+**Workaround 2: Manually author a companion entry.** Add a `companion` object to your `~/.claude.json`:
+
+```json
+{
+  "companion": {
+    "name": "Pith",
+    "personality": "A curious penguin who insists on reading every stack trace twice.",
+    "hatchedAt": 1712188800000
+  }
+}
+```
+
+save-buddy reads this object on next render, regenerates the bones from your `accountUuid`, and displays your new companion. The species, eye, hat, rarity, and stats are determined by your account - you cannot change those without changing your account, but the name and personality are whatever you write.
+
+**Workaround 3: Ask Claude to generate one.** In your Claude Code session, run `/buddy` (which will show a prompt indicating no companion exists), then ask Claude directly: "Generate a name and one-sentence personality for a common penguin companion with high DEBUGGING and low PATIENCE, then save it to my `.claude.json`." Claude can combine the save-buddy MCP tools with its Edit tool to construct the entry. The output matches the native hatching tone because it is generated by Claude.
+
+**Workaround 4 (future): a `buddy_hatch` MCP tool.** A first-class implementation would add a new MCP tool that reads the user's bones, makes a Claude API call using the user's OAuth token with a system prompt mirroring the native `fD1` prompt from the forensic reference, parses the structured `{name, personality}` response, writes it atomically to `.claude.json`, and returns the new companion card. The addition is roughly 100 lines and is welcome as a pull request. The reason it is not already built is that the native hatching was tied to a specific UI animation (egg-cracking, loading words) that cannot be reproduced from outside Claude Code, so save-buddy intentionally focused on the static companion experience first.
+
+</details>
 
 ### Does this work with Claude Code running against a Codex (OpenAI) backend?
 
-Yes. In user setups where Claude Code is configured to route to an OpenAI model through a local proxy gateway (such as CLIProxyAPI with device auth), save-buddy continues to work without modification. The reason is that save-buddy hooks into Claude Code's native extension points (MCP, hooks, status line, skill), not into whichever backend model is answering prompts. Your `accountUuid`, your OAuth credentials, and the `buddy_react` endpoint are all independent of which model Claude Code is using for chat completions.
+**Yes, unchanged.** save-buddy hooks into Claude Code's extension points, not into whichever model Claude Code is using for chat. Your `accountUuid`, OAuth credentials, and the `buddy_react` endpoint are all independent of the chat backend.
 
-Concretely: when you run `/buddy` or trigger a reaction, save-buddy reads the companion from `.claude.json`, regenerates the bones, and optionally calls `api.anthropic.com/.../buddy_react` with your existing Claude OAuth token. None of that touches the Codex/OpenAI path. You still need a valid Claude account for the reaction endpoint to work, but you do not need to be using Claude for chat.
+<details>
+<summary><b>More detail</b></summary>
+
+In setups where Claude Code is configured to route to an OpenAI model through a local proxy gateway (such as CLIProxyAPI with device auth), save-buddy continues to work without modification. When you run `/buddy` or trigger a reaction, save-buddy reads the companion from `.claude.json`, regenerates the bones, and optionally calls `api.anthropic.com/.../buddy_react` with your existing Claude OAuth token. None of that touches the Codex/OpenAI path. You still need a valid Claude account for the reaction endpoint to work, but you do not need to be using Claude for chat completions.
+
+</details>
 
 ### Does this work with OpenAI Codex (the standalone CLI) or other coding assistants?
 
-Not out of the box, but the architecture could be adapted. OpenAI Codex is a separate product from Claude Code, with its own configuration format, its own authentication, and no concept of a companion or an `accountUuid`. save-buddy's data model assumes `.claude.json` exists and contains the fields documented in `server/paths.js`.
+**Not out of the box.** OpenAI Codex and other coding assistants have their own config formats and authentication. save-buddy assumes Claude Code's `.claude.json` exists. Porting it is possible but is a meaningful fork.
 
-If someone wanted to port save-buddy to another coding assistant, the design changes would be:
+<details>
+<summary><b>Design sketch for a port</b></summary>
 
-1. **Abstract the config reader.** Move `server/paths.js` and `server/companion.js` behind an interface that can read from multiple config formats. For OpenAI Codex, this would mean reading from wherever Codex stores its identity (there is no direct equivalent to `accountUuid`, so a synthetic per-install UUID written once at install time would be the replacement).
-2. **Abstract the reaction source.** The `buddy_react` endpoint is Anthropic-specific. For other assistants, substitute either (a) a local fallback only (works offline and costs nothing), or (b) a standard chat completion call to whichever model the user already has credentials for, with a system prompt mirroring the buddy_react server's intended behavior.
-3. **Abstract the extension surface.** MCP is an open standard that other tools are adopting (including Codex in some configurations). Hooks, skills, and status line commands are Claude Code specific. For assistants that support MCP but not hooks, the companion would lose automatic reactions but still work as an on-demand tool (`/buddy show`, `/buddy pet`).
+OpenAI Codex is a separate product from Claude Code, with its own configuration format, its own authentication, and no concept of a companion or an `accountUuid`. save-buddy's data model assumes `.claude.json` exists and contains the fields documented in `server/paths.js`.
 
-This is a meaningful fork rather than a feature flag, and it is not in scope for save-buddy itself. If you want to build it, the MIT license and the "Free to use" section give you everything you need. Please do.
+Porting save-buddy to another coding assistant would require three changes:
+
+1. **Abstract the config reader.** Move `server/paths.js` and `server/companion.js` behind an interface that can read from multiple config formats. For OpenAI Codex, this means reading from wherever Codex stores its identity - and since there is no direct equivalent to `accountUuid`, the replacement would be a synthetic per-install UUID written once at install time.
+
+2. **Abstract the reaction source.** The `buddy_react` endpoint is Anthropic-specific. For other assistants, substitute either (a) a local-fallback-only mode (works offline and costs nothing), or (b) a standard chat completion call to whichever model the user already has credentials for, with a system prompt that mirrors the buddy_react server's intended behavior.
+
+3. **Abstract the extension surface.** MCP is an open standard that other tools are adopting. Hooks, skills, and status line commands are Claude Code specific. For assistants that support MCP but not hooks, the companion loses automatic reactions but still works as an on-demand tool (`/buddy show`, `/buddy pet`).
+
+This is a fork, not a feature flag, and it is not in scope for save-buddy itself. The MIT license and the "Free to use" section give you everything you need to build it.
+
+</details>
 
 ### What happens if I run the installer more than once?
 
-Nothing bad. The installer is idempotent: it updates existing settings entries in place rather than duplicating them. Running `npx save-buddy` or `node install.js` again is how you apply updates and re-register any hooks or settings that may have drifted. Your previous status line command, companion data, and Claude Code config are backed up before any changes, with timestamped filenames in `~/.config/save-buddy/` and next to the original files.
+**Nothing bad.** The installer is idempotent and updates existing entries in place. Re-running is how you apply updates.
 
-### How do I confirm save-buddy is actually running and showing the right companion?
+<details>
+<summary><b>More detail</b></summary>
 
-Run `/buddy` in Claude Code. You should see the companion card with your species, rarity stars, stats, name, and personality. If the name matches the one you had with the native buddy, the PRNG pipeline is correct end to end. You can also check the status line: after a short delay (up to the status line `refreshInterval`), your buddy should appear to the right of your existing HUD with an idle animation.
+Running `npx save-buddy` or `node install.js` again re-registers any hooks or settings that may have drifted and pulls the latest source. Your previous status line command, companion data, and Claude Code config are backed up before any changes, with timestamped filenames in `~/.config/save-buddy/` and next to the original files.
 
-If nothing appears, check:
+</details>
+
+### How do I confirm save-buddy is actually running?
+
+**Run `/buddy` in Claude Code.** You should see the companion card with your species, rarity stars, stats, name, and personality. The status line should also show your buddy after the next refresh.
+
+<details>
+<summary><b>Diagnostics if nothing appears</b></summary>
+
+Check the following in order:
 
 1. `~/.save-buddy/` exists and contains the cloned repository.
 2. `~/.config/save-buddy/state/state.json` has been created (this happens on first render).
-3. Your Claude Code settings (`~/.claude/settings.json`, `~/.claude-work/settings.json`, or the directory pointed to by `CLAUDE_CONFIG_DIR`) contains a `statusLine.command` that points to `buddy-hud-wrapper.js` and a `statusLine.refreshInterval` of `1`.
+3. Your Claude Code settings (`~/.claude/settings.json`, `~/.claude-work/settings.json`, or the directory pointed to by `CLAUDE_CONFIG_DIR`) contain a `statusLine.command` that points to `buddy-hud-wrapper.js` and a `statusLine.refreshInterval` of `1`.
 4. Your `.claude.json` contains an `oauthAccount.accountUuid` and a `companion` object.
+5. You have restarted your Claude Code session after installing - settings load at session start.
+
+If all of those are in place and the buddy still does not appear, open an issue with the output of `node ~/.save-buddy/statusline/buddy-hud-wrapper.js < /dev/null` (Linux/macOS) or `echo '{}' | node ~/.save-buddy/statusline/buddy-hud-wrapper.js` (any platform).
+
+</details>
 
 ### Does save-buddy collect or transmit any data about me?
 
-save-buddy itself collects nothing. It writes no telemetry, phones no home, and has no analytics.
+**save-buddy itself collects nothing.** No telemetry, no analytics, no home calls. The Stop hook sends up to 5,000 characters of recent conversation to Anthropic's `buddy_react` endpoint - identical to what the native buddy did - and nothing to any third party.
 
-The Stop hook does send up to 5,000 characters of your recent conversation to Anthropic's `buddy_react` API endpoint so the model can generate an in-context reaction, but this is the exact same behavior as the native buddy feature, and that data goes to the same company that is already processing your full Claude Code conversation. Nothing is sent to any third party. When the endpoint is unavailable or muted, no network calls are made at all.
+<details>
+<summary><b>More detail</b></summary>
 
-OAuth tokens are read from Claude Code's credential store on demand, used once per API call, and immediately discarded. They are never cached or written to any save-buddy file.
+The data sent to `buddy_react` goes to the same company that is already processing your full Claude Code conversation. When the endpoint is unavailable or muted, no network calls are made at all.
+
+OAuth tokens are read from Claude Code's credential store on demand, used once per API call, and immediately discarded. They are never cached, logged, or written to any save-buddy file. State files in `~/.config/save-buddy/` contain only reaction text, pet counts, mute flags, and per-session HUD caches - never credentials, never conversation transcripts.
+
+</details>
 
 ### Can I customize my companion's species, stats, or appearance?
 
-No, and that is intentional. save-buddy's philosophy is faithful preservation, not expansion. Your companion's species, eyes, hat, rarity, and stats are determined by your Claude Code `accountUuid` via the exact PRNG that the native feature used. Changing those would mean no longer being faithful to the original, and it would break the one-line promise that save-buddy makes to users: "your buddy is exactly who they were before."
+**No, and that is intentional.** save-buddy's philosophy is faithful preservation, not expansion. If you want a customizable companion, fork it.
 
-If you want a customizable companion, the MIT license and the "Free to use" section explicitly encourage you to fork save-buddy and build something new. The sprite system, reaction pipeline, and MCP integration are all documented in [METHODOLOGY.md](METHODOLOGY.md) and designed to be readable and modifiable.
+<details>
+<summary><b>Why, and how to fork</b></summary>
+
+Your companion's species, eyes, hat, rarity, and stats are determined by your Claude Code `accountUuid` via the exact PRNG that the native feature used. Changing those would mean no longer being faithful to the original, and it would break the one-line promise save-buddy makes to users: "your buddy is exactly who they were before."
+
+If you want customization, the MIT license and the "Free to use" section explicitly encourage you to fork save-buddy and build something new. The sprite system, reaction pipeline, and MCP integration are all documented in [METHODOLOGY.md](METHODOLOGY.md) and designed to be readable and modifiable. Good starting points: `server/companion.js` for the bone generator, `server/sprites.js` for the art, and `server/types.js` for the constants.
+
+</details>
 
 ### How do I uninstall save-buddy cleanly?
 
-```bash
-npx save-buddy uninstall
-```
+**`npx save-buddy uninstall`.** This restores your previous status line and removes save-buddy's hooks, MCP registration, skill, and permissions without touching anything else.
 
-This restores your previous status line, removes the three hook entries, removes the MCP server registration from `.claude.json`, removes the `/buddy` skill, and removes the auto-allow permissions entries. It does not touch any other settings, hooks, MCP servers, or skills you may have configured separately. Your companion data in `.claude.json` is preserved. Your save-buddy state files in `~/.config/save-buddy/` are also preserved so a future reinstall picks up where you left off; you can delete that directory manually if you want a clean slate.
+<details>
+<summary><b>What is preserved and what is removed</b></summary>
+
+The uninstaller surgically removes only save-buddy's entries: the three hook entries (Stop, UserPromptSubmit, SessionStart), the MCP server registration from `.claude.json`, the `/buddy` skill directory, and the auto-allow permissions. It does not touch any other hooks, MCP servers, skills, or settings you may have configured separately.
+
+Your companion data in `.claude.json` is preserved. Your save-buddy state files in `~/.config/save-buddy/` are also preserved so a future reinstall picks up where you left off - delete that directory manually if you want a clean slate.
+
+</details>
 
 ## Requirements
 

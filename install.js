@@ -169,9 +169,10 @@ function installSkill() {
 
 console.log('save-buddy installer');
 console.log('====================');
-console.log(`Config directory: ${CONFIG_DIR}`);
-console.log(`Settings file:   ${SETTINGS_PATH}`);
-console.log(`Project root:    ${PROJECT_ROOT}`);
+console.log(`Config directory:  ${CONFIG_DIR}`);
+console.log(`Settings file:     ${SETTINGS_PATH}`);
+console.log(`Claude JSON file:  ${CLAUDE_JSON_PATH}`);
+console.log(`Project root:      ${PROJECT_ROOT}`);
 if (DRY_RUN) {
   console.log('(dry-run mode - no files will be written)');
 }
@@ -267,8 +268,12 @@ for (const permission of buddyPermissions) {
   console.log(`  ${permission}`);
 }
 
+// 2026-04-10: Back up companion data from CLAUDE_JSON_PATH (the actual .claude.json
+// location, which is at home root on standard installs - not inside CONFIG_DIR).
+// Prior version read join(CONFIG_DIR, '.claude.json') which missed the file on
+// every standard Claude Code install and silently skipped the backup. (#1)
 try {
-  const config = JSON.parse(readFileSync(join(CONFIG_DIR, '.claude.json'), 'utf-8'));
+  const config = JSON.parse(readFileSync(CLAUDE_JSON_PATH, 'utf-8'));
   if (config.companion && !DRY_RUN) {
     const backupPath = join(BUDDY_DIR, 'companion-backup.json');
     writeFileSync(backupPath, JSON.stringify(config.companion, null, 2));

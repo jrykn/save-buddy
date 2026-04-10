@@ -2,15 +2,16 @@
 // 2026-04-09: Initial save-buddy uninstaller that removes only the settings this project adds.
 // uninstall.js - Surgically remove save-buddy integration from Claude Code settings.
 
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import JSON5 from 'json5';
-import { BUDDY_DIR, CONFIG_DIR as DETECTED_CONFIG_DIR } from './server/paths.js';
+import { BUDDY_DIR, CONFIG_DIR as DETECTED_CONFIG_DIR, CONFIG_PATH } from './server/paths.js';
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const CONFIG_DIR = DETECTED_CONFIG_DIR;
 const SETTINGS_PATH = join(CONFIG_DIR, 'settings.json');
+const CLAUDE_JSON_PATH = CONFIG_PATH;
 const PREVIOUS_STATUSLINE_PATH = join(BUDDY_DIR, 'previous-statusline.json');
 
 function readSettings() {
@@ -33,6 +34,61 @@ function writeSettings(settings) {
   writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
   renameSync(tmpPath, SETTINGS_PATH);
   console.log(`\nWrote settings to ${SETTINGS_PATH}`);
+}
+
+// 2026-04-10: Remove the save-buddy MCP server entry from ~/.claude.json (the canonical
+// location where install.js writes it). Surgical: backup, parse, delete only the
+// save-buddy key, atomic write back. All other config is preserved untouched.
+function removeMcpServerFromClaudeJson() {
+  let raw;
+  try {
+    raw = readFileSync(CLAUDE_JSON_PATH, 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return;
+    console.warn(`Warning: cannot read ${CLAUDE_JSON_PATH}: ${err.message}`);
+    return;
+  }
+
+  let claudeJson;
+  try {
+    claudeJson = JSON.parse(raw);
+  } catch (err) {
+    console.warn(`Warning: cannot parse ${CLAUDE_JSON_PATH}: ${err.message}`);
+    console.warn('Skipping MCP cleanup. Manually remove "save-buddy" from .claude.json mcpServers.');
+    return;
+  }
+
+  if (!claudeJson.mcpServers?.['save-buddy']) {
+    return;
+  }
+
+  if (DRY_RUN) {
+    console.log(`Would remove MCP server "save-buddy" from ${CLAUDE_JSON_PATH}`);
+    return;
+  }
+
+  const backupPath = `${CLAUDE_JSON_PATH}.buddy-backup-${Date.now()}`;
+  copyFileSync(CLAUDE_JSON_PATH, backupPath);
+  console.log(`Backed up .claude.json to ${backupPath}`);
+
+  delete claudeJson.mcpServers['save-buddy'];
+  if (Object.keys(claudeJson.mcpServers).length === 0) {
+    delete claudeJson.mcpServers;
+  }
+
+  const serialized = JSON.stringify(claudeJson, null, 2);
+  try {
+    JSON.parse(serialized);
+  } catch (err) {
+    console.error(`ERROR: serialized .claude.json failed re-parse: ${err.message}`);
+    console.error('Refusing to write a malformed file. Original is untouched.');
+    return;
+  }
+
+  const tmpPath = `${CLAUDE_JSON_PATH}.save-buddy.tmp`;
+  writeFileSync(tmpPath, serialized);
+  renameSync(tmpPath, CLAUDE_JSON_PATH);
+  console.log(`Removed MCP server "save-buddy" from ${CLAUDE_JSON_PATH}`);
 }
 
 function removeHook(settings, eventName, commandNeedle) {
@@ -78,13 +134,20 @@ if (DRY_RUN) {
 
 const settings = readSettings();
 
+// 2026-04-10: Clean up any legacy mcpServers entries from settings.json. The
+// canonical location is .claude.json (handled separately below). Older save-buddy
+// versions wrote to settings.json which Claude Code ignores - we still clear those
+// stale entries so the file is tidy.
 if (settings.mcpServers?.['save-buddy']) {
   delete settings.mcpServers['save-buddy'];
-  console.log('Removed MCP server: save-buddy');
+  console.log('Removed legacy MCP entry from settings.json: save-buddy');
 }
 if (settings.mcpServers?.buddy) {
   delete settings.mcpServers.buddy;
-  console.log('Removed MCP server: buddy (legacy)');
+  console.log('Removed legacy MCP entry from settings.json: buddy');
+}
+if (settings.mcpServers && Object.keys(settings.mcpServers).length === 0) {
+  delete settings.mcpServers;
 }
 
 removeHook(settings, 'Stop', 'buddy-stop');
@@ -130,6 +193,9 @@ if (Array.isArray(settings.permissions?.allow)) {
 }
 
 writeSettings(settings);
+
+// Remove the canonical MCP registration from ~/.claude.json.
+removeMcpServerFromClaudeJson();
 
 const skillDir = findSkillDir();
 if (skillDir) {

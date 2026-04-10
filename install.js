@@ -6,7 +6,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import JSON5 from 'json5';
-import { BUDDY_DIR, CONFIG_DIR as DETECTED_CONFIG_DIR } from './server/paths.js';
+import { BUDDY_DIR, CONFIG_DIR as DETECTED_CONFIG_DIR, CONFIG_PATH } from './server/paths.js';
 
 // 2026-04-09: Guard against running on Node < 20 (top-level await, ESM features).
 const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
@@ -22,6 +22,11 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const CONFIG_DIR = DETECTED_CONFIG_DIR;
 const SETTINGS_PATH = join(CONFIG_DIR, 'settings.json');
+// 2026-04-10: MCP servers must live in .claude.json (user scope) per the official
+// Claude Code docs: https://code.claude.com/docs/en/settings.md (line 80).
+// settings.json does NOT support the mcpServers field and silently ignores it on
+// current versions (prior installer wrote there and broke MCP registration).
+const CLAUDE_JSON_PATH = CONFIG_PATH;
 const STATE_DIR = join(BUDDY_DIR, 'state');
 const PREVIOUS_STATUSLINE_PATH = join(BUDDY_DIR, 'previous-statusline.json');
 
@@ -70,6 +75,81 @@ function ensureHook(settings, eventName, commandNeedle, command) {
   }
 }
 
+// 2026-04-10: Register the save-buddy MCP server in ~/.claude.json (user scope).
+// This file is Claude Code's main config. It contains OAuth tokens, project state,
+// and the companion field, so we read-modify-write very carefully:
+//   1. Backup with timestamped name before any write
+//   2. Parse fully to validate JSON, fail loudly if corrupted
+//   3. Modify ONLY the mcpServers.save-buddy field, preserve everything else
+//   4. Atomic write via tmp + rename
+//   5. Re-parse the written file to verify the round-trip
+// If any step fails, the original file is untouched and the user is told.
+function ensureMcpServerInClaudeJson(serverPath) {
+  if (DRY_RUN) {
+    console.log(`Would register MCP server "save-buddy" in ${CLAUDE_JSON_PATH}`);
+    return true;
+  }
+
+  let claudeJson;
+  let raw;
+  try {
+    raw = readFileSync(CLAUDE_JSON_PATH, 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.warn(`Warning: ${CLAUDE_JSON_PATH} does not exist yet. Creating a new one.`);
+      claudeJson = {};
+    } else {
+      console.error(`ERROR: cannot read ${CLAUDE_JSON_PATH}: ${err.message}`);
+      console.error('Skipping MCP registration. The /buddy command will not work until this is fixed.');
+      return false;
+    }
+  }
+
+  if (raw !== undefined) {
+    try {
+      claudeJson = JSON.parse(raw);
+    } catch (err) {
+      console.error(`ERROR: cannot parse ${CLAUDE_JSON_PATH}: ${err.message}`);
+      console.error('The file is not valid JSON. Refusing to overwrite. Fix the file and re-run the installer.');
+      return false;
+    }
+  }
+
+  // Backup before any modification.
+  if (raw !== undefined) {
+    const backupPath = `${CLAUDE_JSON_PATH}.buddy-backup-${Date.now()}`;
+    copyFileSync(CLAUDE_JSON_PATH, backupPath);
+    console.log(`Backed up .claude.json to ${backupPath}`);
+  }
+
+  if (!claudeJson.mcpServers || typeof claudeJson.mcpServers !== 'object') {
+    claudeJson.mcpServers = {};
+  }
+
+  claudeJson.mcpServers['save-buddy'] = {
+    command: 'node',
+    args: [serverPath],
+    ...(process.env.CLAUDE_CONFIG_DIR ? { env: { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR } } : {}),
+  };
+
+  const serialized = JSON.stringify(claudeJson, null, 2);
+
+  // Round-trip verification: re-parse the serialized output before writing.
+  try {
+    JSON.parse(serialized);
+  } catch (err) {
+    console.error(`ERROR: serialized .claude.json failed re-parse: ${err.message}`);
+    console.error('Refusing to write a malformed file. Original file is untouched.');
+    return false;
+  }
+
+  const tmpPath = `${CLAUDE_JSON_PATH}.save-buddy.tmp`;
+  writeFileSync(tmpPath, serialized);
+  renameSync(tmpPath, CLAUDE_JSON_PATH);
+  console.log(`Registered MCP server "save-buddy" in ${CLAUDE_JSON_PATH}`);
+  return true;
+}
+
 function installSkill() {
   const candidates = [
     join(process.cwd(), '.claude', 'skills'),
@@ -103,14 +183,27 @@ if (!DRY_RUN) {
   mkdirSync(STATE_DIR, { recursive: true });
 }
 
-if (!settings.mcpServers) settings.mcpServers = {};
+// 2026-04-10: MCP server registration moved to .claude.json (see ensureMcpServerInClaudeJson).
+// settings.json silently ignores the mcpServers field on Claude Code v2.1.89+ per the docs:
+// https://code.claude.com/docs/en/settings.md (Feature location table). Writing there
+// previously caused MCP loading failures - the prior installer thought registration succeeded
+// but Claude Code never picked up the server.
 const serverPath = join(PROJECT_ROOT, 'server', 'index.js').replace(/\\/g, '/');
-settings.mcpServers['save-buddy'] = {
-  command: 'node',
-  args: [serverPath],
-  ...(process.env.CLAUDE_CONFIG_DIR ? { env: { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR } } : {}),
-};
-console.log('Added MCP server: save-buddy');
+// Clean up any stale mcpServers entry in settings.json from prior buggy installs.
+if (settings.mcpServers?.['save-buddy']) {
+  delete settings.mcpServers['save-buddy'];
+  if (Object.keys(settings.mcpServers).length === 0) delete settings.mcpServers;
+  console.log('Removed stale save-buddy entry from settings.json (wrong location)');
+}
+
+// Register MCP server in the canonical location: ~/.claude.json (user scope).
+const mcpRegistered = ensureMcpServerInClaudeJson(serverPath);
+if (!mcpRegistered) {
+  console.error('\nERROR: MCP registration failed. /buddy commands will not work.');
+  console.error('Fix the issue above and re-run install.js, or manually add to ~/.claude.json:');
+  console.error(`  "mcpServers": { "save-buddy": { "command": "node", "args": ["${serverPath}"] } }`);
+  process.exit(1);
+}
 
 ensureHook(
   settings,

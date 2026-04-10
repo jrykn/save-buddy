@@ -158,24 +158,51 @@ try {
     stdin += chunk;
   }
 
-  const existingOutput = renderExistingOutput(stdin);
+  // 2026-04-10: Cache last good HUD output to a session-scoped file. Codex
+  // review identified this: when the chained HUD command fails or times out,
+  // existingOutput becomes empty, leftWidth collapses to 0, and the buddy
+  // renders flush-left at column 2 instead of column ~60. The next successful
+  // render puts the buddy back at col 60, leaving the col-2 ghost sprite
+  // visible. By caching the last good HUD output and re-using it on failure,
+  // we keep leftWidth and the buddy's column stable across HUD hiccups.
+  let stdinSessionId = '';
+  try {
+    const data = JSON.parse(stdin);
+    if (typeof data.session_id === 'string' && data.session_id.length > 0) {
+      stdinSessionId = data.session_id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    }
+  } catch {}
+  const hudCachePath = stdinSessionId
+    ? join(BUDDY_DIR, 'state', `hud-${stdinSessionId}.txt`)
+    : '';
+
+  let existingOutput = renderExistingOutput(stdin);
+  if (existingOutput.trim().length === 0 && hudCachePath) {
+    try {
+      existingOutput = readFileSync(hudCachePath, 'utf-8');
+    } catch {}
+  } else if (existingOutput.trim().length > 0 && hudCachePath) {
+    try {
+      mkdirSync(join(BUDDY_DIR, 'state'), { recursive: true });
+      writeFileSync(hudCachePath, existingOutput);
+    } catch {}
+  }
+
   // 2026-04-10: Preserve blank lines (they're part of HUD layout), but treat
   // truly empty output as "no HUD" so the buddy renders standalone.
   const existingLines = existingOutput.trim().length > 0
     ? existingOutput.replace(/\r\n/g, '\n').trimEnd().split('\n')
     : [];
   const companion = getCompanion();
-
-  if (!companion) {
-    process.stdout.write(existingOutput);
-    process.exit(0);
-  }
-
   const state = safeReadJson(STATE_PATH);
-  if (isMuted(state)) {
-    process.stdout.write(existingOutput);
-    process.exit(0);
-  }
+  const muted = !companion || isMuted(state);
+
+  // 2026-04-10: When muted or no companion, we STILL go through the fixed-
+  // height renderer below with an empty buddy block. Codex review identified
+  // that the early-exit branches (which used to write raw existingOutput and
+  // exit) produced 3-4 line output while the normal path produces 8, causing
+  // line count fluctuation that broke Claude Code's cursor-up clearing. The
+  // line count must be stable across mute toggles and config-read failures.
 
   const reaction = getReaction();
   const hasActiveReaction = Boolean(reaction.text);
@@ -195,30 +222,32 @@ try {
   // If the HUD is tall enough, show the full sprite + name + stars. If not, show
   // a compact inline representation (compact face + name + bubble).
 
-  // 2026-04-10: Always render the full buddy block (bubble + sprite + name + stars).
-  // Claude Code's statusline accepts multi-line output - the previous "split sprite"
-  // problem was a padding bug, not a line-count limit. The fix: ensure EVERY line
-  // in the output has the same left padding so the buddy column stays aligned.
   const hudLines = existingLines.length;
   const tick = Math.floor(Date.now() / 500);
-  const step = hasActiveReaction ? tick % 3 : IDLE_SEQUENCE[tick % IDLE_SEQUENCE.length];
-  const spriteLines = step === -1 ? renderBlink(companion) : renderSprite(companion, step);
-  let bubbleLines = cappedReaction ? renderBubble(cappedReaction) : [];
-  bubbleLines = styleBubbleLines(bubbleLines, companion.rarity, shouldDim);
 
-  // 2026-04-10: Colorize sprite body by rarity to match native buddy behavior.
-  // Forensics reference (specs/2026-04-09-buddy-forensics-reference.md:1226) notes
-  // "species art, colored" - the native companion card rendered sprite art in the
-  // rarity color. Previously save-buddy only colored the name and stars, leaving
-  // the sprite in default terminal color, which looked inconsistent beside the
-  // colored name. User feedback: "the colour is not right for the new one".
+  // 2026-04-10: Build the sprite block ONLY if we have an unmuted companion.
+  // When muted or no companion, spriteBlock and bubbleLines stay empty and we
+  // still emit a fixed-height padded HUD output. Codex review identified that
+  // the early-exit branches that wrote raw existingOutput caused line count
+  // fluctuation (3-4 raw vs 8 padded), which broke Claude Code's cursor-up
+  // clear count and produced ghost sprites from previous renders.
+  let bubbleLines = [];
   const spriteBlock = [];
-  if (state?.petHeartsUntil && Date.now() < state.petHeartsUntil) {
-    spriteBlock.push(magenta(PET_HEARTS[Math.floor(Date.now() / 500) % PET_HEARTS.length]));
+  if (!muted && companion) {
+    const step = hasActiveReaction ? tick % 3 : IDLE_SEQUENCE[tick % IDLE_SEQUENCE.length];
+    const spriteLines = step === -1 ? renderBlink(companion) : renderSprite(companion, step);
+    bubbleLines = cappedReaction ? renderBubble(cappedReaction) : [];
+    bubbleLines = styleBubbleLines(bubbleLines, companion.rarity, shouldDim);
+
+    // Forensics reference (specs/2026-04-09-buddy-forensics-reference.md:1226):
+    // native companion card rendered "species art, colored" in the rarity color.
+    if (state?.petHeartsUntil && Date.now() < state.petHeartsUntil) {
+      spriteBlock.push(magenta(PET_HEARTS[Math.floor(Date.now() / 500) % PET_HEARTS.length]));
+    }
+    spriteLines.forEach((line) => spriteBlock.push(colorize(line, companion.rarity)));
+    spriteBlock.push(`   ${bold(colorize(companion.name, companion.rarity))}`);
+    spriteBlock.push(`   ${colorize(RARITY_STARS[companion.rarity] || '', companion.rarity)}`);
   }
-  spriteLines.forEach((line) => spriteBlock.push(colorize(line, companion.rarity)));
-  spriteBlock.push(`   ${bold(colorize(companion.name, companion.rarity))}`);
-  spriteBlock.push(`   ${colorize(RARITY_STARS[companion.rarity] || '', companion.rarity)}`);
 
   // 2026-04-10: Always reserve a fixed bubble area, even when there's no bubble.
   // Previously, the sprite's column shifted by ~36 chars when the bubble appeared
@@ -336,24 +365,15 @@ try {
     }
   }
 
-  // 2026-04-10: CRITICAL - equalize visual width across all output lines AND
-  // prepend each line with \r + \x1b[K (carriage return + erase-to-end-of-line).
-  // The two-sprite duplication bug was caused by Claude Code's statusline
-  // overwrite mechanism leaving trailing characters from the previous render
-  // when subsequent renders had different per-line widths or when the cursor
-  // wasn't returned to column 0 between lines. Forcing every line to:
-  //   1. Start at column 0 (\r)
-  //   2. Erase from cursor to end of line (\x1b[K) before writing new content
-  //   3. Have the same visual width as every other line
-  // ...guarantees that no stale characters from the previous render bleed
-  // through, regardless of how Claude Code's positioning mechanism works.
+  // 2026-04-10: Equalize visual widths across all output lines so previous
+  // renders with different per-line widths get fully overwritten by current
+  // renders padded to the same width. Per Codex review, raw cursor control
+  // codes (\r, \x1b[K, \x1b[2K) are NOT emitted from the wrapper - they
+  // could fight with Claude Code's own statusline cursor management. The
+  // contract is "emit rows of text", not "send terminal control choreography".
   const maxVisual = Math.max(...output.map((line) => visualWidth(line)), 0);
   const equalized = output.map((line) => {
-    const padded = line + ' '.repeat(Math.max(0, maxVisual - visualWidth(line)));
-    // \r returns cursor to col 0, \x1b[2K erases the ENTIRE current line
-    // (not just from cursor to end). Together they guarantee no leftover
-    // characters from a previous render survive on this row.
-    return `\r\u001b[2K${padded}`;
+    return line + ' '.repeat(Math.max(0, maxVisual - visualWidth(line)));
   });
 
   process.stdout.write(`${equalized.join('\n')}\n`);

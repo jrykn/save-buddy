@@ -220,15 +220,22 @@ try {
   spriteBlock.push(`   ${bold(colorize(companion.name, companion.rarity))}`);
   spriteBlock.push(`   ${colorize(RARITY_STARS[companion.rarity] || '', companion.rarity)}`);
 
+  // 2026-04-10: Always reserve a fixed bubble area, even when there's no bubble.
+  // Previously, the sprite's column shifted by ~36 chars when the bubble appeared
+  // or disappeared (10s reaction timer): with bubble, sprite was at leftWidth + 2
+  // + 34 + 2 = leftWidth + 38; without bubble, sprite was at leftWidth + 2. The
+  // jump made the previous render's sprite content survive at the OLD column,
+  // visible as a ghost sprite at a different X offset every time the bubble
+  // appeared or faded. Reserving the bubble area unconditionally pins the sprite
+  // column so per-row erase fully overwrites the previous render's sprite.
+  const BUBBLE_RESERVED_WIDTH = 34;
   const rightBlock = [];
-  if (bubbleLines.length > 0) {
-    const bubbleWidth = Math.max(...bubbleLines.map((line) => visualWidth(line)), 34);
-    const blockLines = Math.max(bubbleLines.length, spriteBlock.length);
-    for (let i = 0; i < blockLines; i += 1) {
-      rightBlock.push(`${rightPadAnsi(bubbleLines[i] || '', bubbleWidth)}  ${spriteBlock[i] || ''}`);
-    }
-  } else {
-    spriteBlock.forEach((line) => rightBlock.push(line));
+  const bubbleWidth = bubbleLines.length > 0
+    ? Math.max(...bubbleLines.map((line) => visualWidth(line)), BUBBLE_RESERVED_WIDTH)
+    : BUBBLE_RESERVED_WIDTH;
+  const blockLines = Math.max(bubbleLines.length, spriteBlock.length);
+  for (let i = 0; i < blockLines; i += 1) {
+    rightBlock.push(`${rightPadAnsi(bubbleLines[i] || '', bubbleWidth)}  ${spriteBlock[i] || ''}`);
   }
 
   const rightWidth = Math.max(...rightBlock.map((line) => visualWidth(line)), 0);

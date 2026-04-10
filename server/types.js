@@ -54,26 +54,31 @@ export const RARITY_FLOOR = {
   legendary: 50,
 };
 
+// 2026-04-10: Colors are brightened ~1.7x to compensate for Claude Code's
+// <Text dimColor> wrapper on all statusline output. The native buddy was
+// rendered as a separate Ink component (not in the statusline), so it wasn't
+// dimmed. These brightened values approximate the native appearance after
+// Claude Code's dim is applied.
 export const RARITY_HEX = {
-  common: { r: 115, g: 115, b: 115 },
-  uncommon: { r: 22, g: 163, b: 74 },
-  rare: { r: 37, g: 99, b: 235 },
-  epic: { r: 139, g: 92, b: 246 },
-  legendary: { r: 234, g: 179, b: 8 },
+  common: { r: 220, g: 220, b: 220 },
+  uncommon: { r: 40, g: 255, b: 130 },
+  rare: { r: 70, g: 170, b: 255 },
+  epic: { r: 210, g: 160, b: 255 },
+  legendary: { r: 255, g: 230, b: 50 },
 };
 
 export const RARITY_256 = {
-  common: 245,
-  uncommon: 35,
-  rare: 33,
-  epic: 135,
-  legendary: 220,
+  common: 255,
+  uncommon: 48,
+  rare: 75,
+  epic: 141,
+  legendary: 227,
 };
 
 export const RARITY_16 = {
-  common: 90,
-  uncommon: 32,
-  rare: 34,
-  epic: 35,
-  legendary: 33,
+  common: 97,
+  uncommon: 92,
+  rare: 94,
+  epic: 95,
+  legendary: 93,
 };

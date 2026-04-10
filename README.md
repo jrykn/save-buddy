@@ -165,6 +165,7 @@ The PRNG test verifies your companion regenerates identically to the one stored 
 - The uninstaller restores your previous configuration rather than deleting unrelated settings
 - All file writes use atomic write-to-temp-then-rename to prevent corruption from concurrent readers
 - Worker processes receive a minimal environment (HOME, PATH only)
+- The Stop hook sends up to 5,000 characters of recent conversation to Anthropic's `buddy_react` API (the same endpoint the native buddy used). This data goes to the same company that already has your full conversation. No conversation data is sent to any third party. When the API is unavailable, local templates are used instead
 
 ## Attribution
 

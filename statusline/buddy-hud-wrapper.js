@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 2026-04-10: Rewritten statusline layout engine with robust terminal width detection.
+// 2026-04-10: Statusline layout engine with fixed-height rendering and per-line erase.
 // buddy-hud-wrapper.js - Chains any existing statusline and appends buddy sprite + bubble.
 
 import { execFileSync } from 'child_process';
@@ -175,11 +175,6 @@ try {
   const cappedReaction = reaction.text ? reaction.text.slice(0, 180) : '';
   const shouldDim = hasActiveReaction && reaction.age > 7000;
 
-  // 2026-04-10: CRITICAL - stable output line count. We emit exactly
-  // max(hudLines, BUDDY_RESERVED_HEIGHT) lines every render. If the HUD has fewer
-  // lines than the buddy block needs, we pad with blank rows. The buddy block
-  // always gets its full 8-line height regardless of HUD size.
-
   const hudLines = existingLines.length;
   const tick = Math.floor(Date.now() / 500);
 
@@ -245,25 +240,32 @@ try {
   // the stdin JSON. If session_id is missing, falls back to the current
   // render's max HUD width without persistence.
   const maxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
-  // Re-use stdinSessionId parsed above (lines 168-174) instead of re-parsing.
-  const sessionId = stdinSessionId;
   let leftWidth = hudLines > 0 ? maxHudWidth : 0;
-  if (sessionId && hudLines > 0) {
-    const sessionStatePath = join(BUDDY_DIR, 'state', `lw-${sessionId}.txt`);
+  if (stdinSessionId && hudLines > 0) {
+    const sessionStatePath = join(BUDDY_DIR, 'state', `lw-${stdinSessionId}.txt`);
     let persisted = 0;
     try {
       const v = parseInt(readFileSync(sessionStatePath, 'utf-8'), 10);
       if (Number.isFinite(v) && v > 0) persisted = v;
     } catch {}
     if (maxHudWidth > persisted) {
-      try {
-        mkdirSync(join(BUDDY_DIR, 'state'), { recursive: true });
-        writeFileSync(sessionStatePath, String(maxHudWidth));
-      } catch {}
       leftWidth = maxHudWidth;
+    } else if (persisted > maxHudWidth + 20) {
+      // 2026-04-10: Decay toward current HUD width when persisted leftWidth
+      // is significantly wider than the current HUD output. Without decay,
+      // a single transient wide HUD line (e.g., long activity string) pushes
+      // the buddy far right for the rest of the session, wasting screen space
+      // and risking terminal line wrapping on narrow terminals. Principal
+      // engineering audit finding P0: unbounded monotonic growth.
+      // Decay by 10% per render, minimum maxHudWidth.
+      leftWidth = Math.max(maxHudWidth, Math.floor(persisted * 0.9));
     } else {
       leftWidth = persisted;
     }
+    try {
+      mkdirSync(join(BUDDY_DIR, 'state'), { recursive: true });
+      writeFileSync(sessionStatePath, String(leftWidth));
+    } catch {}
   }
 
   // 2026-04-10: CRITICAL - stable line count across every render.

@@ -64,13 +64,6 @@ export function visualWidth(str) {
       (cp >= 0xFFE0 && cp <= 0xFFE6) ||
       // Hangul Syllables
       (cp >= 0xAC00 && cp <= 0xD7AF) ||
-      // Powerline symbols (Private Use Area - common Nerd Font range)
-      (cp >= 0xE0A0 && cp <= 0xE0D4) ||
-      // Nerd Font extra symbols
-      (cp >= 0xE200 && cp <= 0xE2FF) ||
-      (cp >= 0xE700 && cp <= 0xE7FF) ||
-      (cp >= 0xE0B0 && cp <= 0xE0BF) ||
-      // Box drawing heavy + block elements that render wide in some fonts
       // Emoji (most are width 2)
       (cp >= 0x1F300 && cp <= 0x1F9FF) ||
       (cp >= 0x2600 && cp <= 0x27BF)

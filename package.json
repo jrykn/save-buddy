@@ -5,11 +5,11 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "save-buddy": "./cli.js"
+    "save-buddy": "cli.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jrykn/save-buddy"
+    "url": "git+https://github.com/jrykn/save-buddy.git"
   },
   "keywords": [
     "claude",

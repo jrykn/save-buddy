@@ -16,3 +16,4 @@ companion-backup.json
 # Installer backup files
 *.buddy-backup-*
 *.save-buddy.tmp
+.npmrc

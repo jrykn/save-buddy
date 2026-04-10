@@ -13,6 +13,10 @@ import { RARITY_STARS } from '../server/types.js';
 import { visualWidth } from '../server/util.js';
 
 const IDLE_SEQUENCE = [0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 2, 0, 0, 0];
+// 2026-04-10: Maximum buddy block height: 1 pet-heart + 5 sprite rows (with hat)
+// + 1 name + 1 stars = 8. Also matches max bubble height (2 borders + 6 content).
+// Defined at module scope so the catch fallback can reference it.
+const BUDDY_RESERVED_HEIGHT = 8;
 const PET_HEARTS = [
   '   \u2665    \u2665   ',
   '  \u2665  \u2665   \u2665  ',
@@ -113,44 +117,6 @@ function rightPadAnsi(line, width) {
   return line + ' '.repeat(Math.max(0, width - visual));
 }
 
-// 2026-04-10: Robust terminal width detection. Statusline commands run as piped
-// subprocesses, so process.stdout.columns is often undefined. We try multiple
-// sources in order of reliability. This is critical for correct right-alignment
-// when users have custom HUDs (tail-claude-hud, starship, oh-my-posh, etc.).
-function detectTerminalWidth(stdinText) {
-  // 1. Claude Code may pass terminal dimensions in the stdin JSON
-  try {
-    const data = JSON.parse(stdinText);
-    if (typeof data.columns === 'number' && data.columns > 0) return data.columns;
-    if (typeof data.terminalColumns === 'number' && data.terminalColumns > 0) return data.terminalColumns;
-    if (typeof data.width === 'number' && data.width > 0) return data.width;
-  } catch {}
-
-  // 2. stdout columns (works when stdout IS the terminal)
-  if (process.stdout.columns > 0) return process.stdout.columns;
-
-  // 3. stderr columns (stderr is often still connected to the TTY even when stdout is piped)
-  if (process.stderr.columns > 0) return process.stderr.columns;
-
-  // 4. COLUMNS env var (set by some shells and terminal multiplexers)
-  const envCols = parseInt(process.env.COLUMNS, 10);
-  if (envCols > 0) return envCols;
-
-  // 5. Try tput cols as a subprocess (works on macOS/Linux, fails gracefully on Windows)
-  try {
-    const result = execFileSync('tput', ['cols'], {
-      encoding: 'utf-8',
-      timeout: 500,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    const tputCols = parseInt(result, 10);
-    if (tputCols > 0) return tputCols;
-  } catch {}
-
-  // 6. Fallback - assume a reasonable modern terminal width
-  return 120;
-}
-
 try {
   let stdin = '';
   process.stdin.setEncoding('utf-8');
@@ -209,14 +175,10 @@ try {
   const cappedReaction = reaction.text ? reaction.text.slice(0, 180) : '';
   const shouldDim = hasActiveReaction && reaction.age > 7000;
 
-  // 2026-04-10: CRITICAL - Claude Code's statusline is a fixed-height area determined
-  // by the number of lines in the HUD output. If we output MORE lines than the HUD,
-  // Claude Code leaks the extra lines into the terminal proper. We MUST produce
-  // exactly existingLines.length lines (or pad the HUD with blank lines).
-  //
-  // Strategy: build a right-side buddy block constrained to the HUD's line count.
-  // If the HUD is tall enough, show the full sprite + name + stars. If not, show
-  // a compact inline representation (compact face + name + bubble).
+  // 2026-04-10: CRITICAL - stable output line count. We emit exactly
+  // max(hudLines, BUDDY_RESERVED_HEIGHT) lines every render. If the HUD has fewer
+  // lines than the buddy block needs, we pad with blank rows. The buddy block
+  // always gets its full 8-line height regardless of HUD size.
 
   const hudLines = existingLines.length;
   const tick = Math.floor(Date.now() / 500);
@@ -270,8 +232,6 @@ try {
     rightBlock.push(`${rightPadAnsi(bubbleLines[i] || '', bubbleWidth)}  ${spriteBlock[i] || ''}`);
   }
 
-  const rightWidth = Math.max(...rightBlock.map((line) => visualWidth(line)), 0);
-
   // 2026-04-10: Position the buddy to the right of the widest HUD line (2-char
   // gap). leftWidth must be MONOTONIC within a session: if the HUD was 110
   // chars wide on a previous tick and 50 chars wide on the current tick, we
@@ -284,15 +244,9 @@ try {
   // off-screen. This version keys the state file by session_id parsed from
   // the stdin JSON. If session_id is missing, falls back to the current
   // render's max HUD width without persistence.
-  let cols = detectTerminalWidth(stdin);
   const maxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
-  let sessionId = '';
-  try {
-    const data = JSON.parse(stdin);
-    if (typeof data.session_id === 'string' && data.session_id.length > 0) {
-      sessionId = data.session_id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
-    }
-  } catch {}
+  // Re-use stdinSessionId parsed above (lines 168-174) instead of re-parsing.
+  const sessionId = stdinSessionId;
   let leftWidth = hudLines > 0 ? maxHudWidth : 0;
   if (sessionId && hudLines > 0) {
     const sessionStatePath = join(BUDDY_DIR, 'state', `lw-${sessionId}.txt`);
@@ -312,22 +266,6 @@ try {
     }
   }
 
-  // 2026-04-10: Sanity check detected cols. If the HUD is wider than our detected
-  // terminal width, the detection is unreliable (you can't have a HUD wider than
-  // the terminal). This happens on Windows where piped subprocesses get stale
-  // console width. Treat as unknown and skip the cap.
-  if (cols > 0 && cols < maxHudWidth + 10) {
-    cols = 0;
-  }
-
-  // Cap to terminal width only if we have a reliable value AND it would actually
-  // cause wrapping. Never truncate the HUD - it would lose user context.
-  if (cols > 0 && leftWidth + rightWidth + 2 > cols) {
-    // Keep the full HUD width; the buddy will extend beyond terminal if needed.
-    // Better to have the buddy wrap slightly than to truncate HUD content.
-    // (In practice this rarely happens because cols sanity-check above filters it.)
-  }
-
   // 2026-04-10: CRITICAL - stable line count across every render.
   // Claude Code clears the previous statusline by cursor-up-N (where N = previous
   // output's line count) and erase-to-end-of-screen. If our output count varies
@@ -337,10 +275,7 @@ try {
   // offsets on screen as a result.
   //
   // Fix: always emit exactly max(hudLines, BUDDY_RESERVED_HEIGHT) lines. Pad both
-  // sides with blanks. BUDDY_RESERVED_HEIGHT is the maximum possible buddy block
-  // height: 1 pet-heart + 5 sprite rows (with hat) + 1 name + 1 stars = 8, which
-  // also matches the maximum bubble height (2 borders + 6 wrapped content rows).
-  const BUDDY_RESERVED_HEIGHT = 8;
+  // sides with blanks.
   const totalLines = Math.max(hudLines, BUDDY_RESERVED_HEIGHT);
 
   // Pad rightBlock with blank rows so every tick has the same right-side height.
@@ -362,22 +297,49 @@ try {
     output.push(`${left}  ${right}`);
   }
 
-  // 2026-04-10: Equalize visual widths across all output lines so previous
-  // renders with different per-line widths get fully overwritten by current
-  // renders padded to the same width. Per Codex review, raw cursor control
-  // codes (\r, \x1b[K, \x1b[2K) are NOT emitted from the wrapper - they
-  // could fight with Claude Code's own statusline cursor management. The
-  // contract is "emit rows of text", not "send terminal control choreography".
-  const maxVisual = Math.max(...output.map((line) => visualWidth(line)), 0);
-  const equalized = output.map((line) => {
-    return line + ' '.repeat(Math.max(0, maxVisual - visualWidth(line)));
-  });
-
-  process.stdout.write(`${equalized.join('\n')}\n`);
+  // 2026-04-10: Append \x1b[K (erase to end of line) to every output line.
+  //
+  // ROOT CAUSE of the ghost-sprite bug: when total output width varies between
+  // renders (the HUD activity line swings from 61 to 174+ visual chars), ghost
+  // characters from wider previous renders survive to the right of the current
+  // render's content. Space-padding to maxVisual within a render does NOT help
+  // because maxVisual itself varies across renders.
+  //
+  // \x1b[K tells the terminal "erase from the cursor position to the end of
+  // the line". The terminal erases old content at positions beyond our current
+  // line's width, eliminating ghost sprites regardless of width variation,
+  // concurrent renders, or terminal width detection accuracy.
+  //
+  // The upstream HUD (tail-claude-hud) already emits \x1b[K at the end of each
+  // of its lines. That mid-line \x1b[K clears old content between the HUD and
+  // our buddy block. Our trailing \x1b[K clears old content after the buddy.
+  // Together they cover the full line.
+  //
+  // This is the same mechanism Ink uses internally for Claude Code's native
+  // buddy rendering: each line is followed by an erase-to-end-of-line to
+  // prevent ghost artifacts from previous frames.
+  const final = output.map((line) => line + '\x1b[K');
+  process.stdout.write(`${final.join('\n')}\n`);
 } catch {
+  // 2026-04-10: Catch fallback must also emit fixed-height output with \x1b[K.
+  // The previous version wrote raw existingOutput (3-4 lines) instead of the
+  // normal 8 lines, causing a line count change that broke Claude Code's
+  // cursor-up clearing. Emit BUDDY_RESERVED_HEIGHT blank lines with \x1b[K
+  // to maintain stable line count and clear any ghost content.
   try {
     const fallback = renderExistingOutput('');
-    if (fallback) process.stdout.write(fallback);
-  } catch {}
+    const fallbackLines = fallback.trim().length > 0
+      ? fallback.replace(/\r\n/g, '\n').trimEnd().split('\n')
+      : [];
+    const padded = [];
+    for (let i = 0; i < BUDDY_RESERVED_HEIGHT; i += 1) {
+      padded.push((fallbackLines[i] || '') + '\x1b[K');
+    }
+    process.stdout.write(`${padded.join('\n')}\n`);
+  } catch {
+    // Last resort: emit 8 blank lines with \x1b[K to maintain line count
+    const blank = Array.from({ length: BUDDY_RESERVED_HEIGHT }, () => '\x1b[K');
+    process.stdout.write(`${blank.join('\n')}\n`);
+  }
   process.exit(0);
 }

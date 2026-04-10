@@ -11,21 +11,6 @@ save-buddy captures everything about the buddy system - the deterministic compan
   `---'
 ```
 
-## How it works
-
-Claude Code assigns every user a deterministic companion based on their account UUID. The species, eyes, hat, rarity, and stats are generated from an FNV-1a hash fed into a Mulberry32 PRNG - the same companion every time, without storing the result. Only the name and personality (generated during hatching) are persisted.
-
-save-buddy reimplements this pipeline and wires it into Claude Code through:
-
-- **MCP server** (stdio) - 5 tools for showing, petting, reacting, muting, and stats
-- **System prompt injection** - companion awareness via the MCP `instructions` field
-- **Stop hook** - detects coding events (test failures, errors, large diffs) and triggers reactions
-- **UserPromptSubmit hook** - detects when you address your companion by name
-- **SessionStart hook** - fires a greeting when you start or resume a session
-- **Status line wrapper** - renders the sprite and speech bubble alongside your existing status line
-
-Reactions come from the same `buddy_react` API endpoint that the native feature uses. This endpoint is not publicly documented by Anthropic and may be removed at any time. When the API is unavailable, local fallback templates keep your companion responsive - save-buddy degrades gracefully.
-
 ## Quick install
 
 ```bash
@@ -46,7 +31,9 @@ npx save-buddy update
 npx save-buddy uninstall
 ```
 
-### Manual install (alternative)
+Uninstall surgically removes only save-buddy's entries from your settings. Your previous status line is restored, other hooks and MCP servers are untouched, and your companion data is preserved.
+
+### Manual install
 
 ```bash
 git clone https://github.com/jrykn/save-buddy ~/.save-buddy && cd ~/.save-buddy && npm i && node install.js
@@ -54,22 +41,21 @@ git clone https://github.com/jrykn/save-buddy ~/.save-buddy && cd ~/.save-buddy 
 
 ### What the installer does
 
-1. Registers the MCP server in your Claude Code settings
+1. Registers the MCP server in your Claude Code config
 2. Adds Stop, UserPromptSubmit, and SessionStart hooks
 3. Wraps your existing status line (preserving it) with the buddy renderer
-4. Adds MCP tool permissions so companion interactions don't require approval
-5. Backs up your companion data and current settings before making changes
-6. Copies the `/buddy` skill for command routing
+4. Sets a 1-second refresh interval for buddy animation
+5. Adds MCP tool permissions so companion interactions don't require approval
+6. Backs up your companion data and current settings before making changes
+7. Copies the `/buddy` skill for command routing
 
 ### Dry run
 
 Preview what the installer would do without writing any files:
 
 ```bash
-node install.js --dry-run
+cd ~/.save-buddy && node install.js --dry-run
 ```
-
-This surgically removes only save-buddy's entries from your settings. Your previous status line is restored, other hooks and MCP servers are untouched, and your companion data is preserved.
 
 ## Commands
 
@@ -82,13 +68,20 @@ This surgically removes only save-buddy's entries from your settings. Your previ
 | `/buddy unmute` | Re-enable reactions |
 | `/buddy react` | Manually trigger a reaction with current conversation context |
 
-## Requirements
+## How it works
 
-- Node.js 20 or later
-- An active Claude Code installation with a hatched companion
-- OAuth credentials (managed by Claude Code, no manual setup needed)
+Claude Code assigns every user a deterministic companion based on their account UUID. The species, eyes, hat, rarity, and stats are generated from an FNV-1a hash fed into a Mulberry32 PRNG - the same companion every time, without storing the result. Only the name and personality (generated during hatching) are persisted.
 
-If you haven't hatched a buddy yet and the feature has already been removed from your Claude Code version, check if you have a backup of your `.claude.json` that includes a `companion` entry.
+save-buddy reimplements this pipeline and wires it into Claude Code through:
+
+- **MCP server** (stdio) - 5 tools for showing, petting, reacting, muting, and stats
+- **System prompt injection** - companion awareness via the MCP `instructions` field
+- **Stop hook** - detects coding events (test failures, errors, large diffs) and triggers reactions
+- **UserPromptSubmit hook** - detects when you address your companion by name
+- **SessionStart hook** - fires a greeting when you start or resume a session
+- **Status line wrapper** - renders the sprite and speech bubble alongside your existing status line
+
+Reactions come from the same `buddy_react` API endpoint that the native feature uses. This endpoint is not publicly documented by Anthropic and may be removed at any time. When the API is unavailable, local fallback templates keep your companion responsive.
 
 ## How reactions work
 
@@ -119,10 +112,21 @@ Your companion's identity is fully deterministic:
 
 Bones are recomputed from the seed every time. Only the name and personality are persisted in `.claude.json`.
 
+## Requirements
+
+- Node.js 20 or later
+- An active Claude Code installation with a hatched companion
+- OAuth credentials (managed by Claude Code, no manual setup needed)
+
+If you haven't hatched a buddy yet and the feature has already been removed from your Claude Code version, check if you have a backup of your `.claude.json` that includes a `companion` entry.
+
 ## Project structure
 
 ```
 save-buddy/
+  cli.js              npx entry point (bootstraps install to ~/.save-buddy)
+  install.js          Wires MCP, hooks, status line, permissions, and skill
+  uninstall.js        Clean removal (restores previous settings)
   server/
     index.js          MCP server (5 tools + system prompt injection)
     companion.js      PRNG engine (FNV-1a + Mulberry32) and config reader
@@ -149,8 +153,6 @@ save-buddy/
     test-sprites.js   All 18 species, frames, bubbles, cards
     test-util.js      Utilities, ANSI handling, reactions
     test-api.js       API client smoke test (requires live credentials)
-  install.js          One-command setup
-  uninstall.js        Clean removal
 ```
 
 ## Testing
@@ -174,7 +176,7 @@ The PRNG test verifies your companion regenerates identically to the one stored 
 - The uninstaller restores your previous configuration rather than deleting unrelated settings
 - All file writes use atomic write-to-temp-then-rename to prevent corruption from concurrent readers
 - Worker processes receive a minimal environment (HOME, PATH only)
-- The Stop hook sends up to 5,000 characters of recent conversation to Anthropic's `buddy_react` API (the same endpoint the native buddy used). This data goes to the same company that already has your full conversation. No conversation data is sent to any third party. When the API is unavailable, local templates are used instead
+- The Stop hook sends up to 5,000 characters of recent conversation to Anthropic's `buddy_react` API endpoint (the same one the native buddy used). This data goes to the same company that already has your full conversation. No conversation data is sent to any third party. When the API is unavailable, local fallback templates are used instead
 
 ## Attribution
 

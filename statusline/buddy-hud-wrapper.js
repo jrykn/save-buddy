@@ -3,7 +3,7 @@
 // buddy-hud-wrapper.js - Chains any existing statusline and appends buddy sprite + bubble.
 
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { bold, colorize, dim, italic, magenta } from '../server/ansi.js';
 import { getCompanion, isMuted } from '../server/companion.js';
@@ -234,15 +234,44 @@ try {
   const rightWidth = Math.max(...rightBlock.map((line) => visualWidth(line)), 0);
 
   // 2026-04-10: Position the buddy to the right of the widest HUD line (2-char
-  // gap). leftWidth tracks ONLY the current render. A previous attempt to
-  // persist leftWidth via a state file caused stale values from one session
-  // to leak into other long-running sessions, with catastrophic visual results
-  // (buddy shoved 70+ columns to the right because a different session had
-  // grown leftWidth to 123). Each render computes its own value from current
-  // HUD lines. The "ghost sprite" duplication bug must be solved another way.
+  // gap). leftWidth must be MONOTONIC within a session: if the HUD was 110
+  // chars wide on a previous tick and 50 chars wide on the current tick, we
+  // must still position the buddy at column 112 (not 52), otherwise the buddy
+  // shifts left and the previous render's content at column 112+ remains as a
+  // visible "ghost" sprite to the right of the new render.
+  //
+  // Per-session scoping is critical: a previous attempt used a global
+  // state file and got stale values from other sessions, shoving the buddy
+  // off-screen. This version keys the state file by session_id parsed from
+  // the stdin JSON. If session_id is missing, falls back to the current
+  // render's max HUD width without persistence.
   let cols = detectTerminalWidth(stdin);
   const maxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
+  let sessionId = '';
+  try {
+    const data = JSON.parse(stdin);
+    if (typeof data.session_id === 'string' && data.session_id.length > 0) {
+      sessionId = data.session_id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    }
+  } catch {}
   let leftWidth = hudLines > 0 ? maxHudWidth : 0;
+  if (sessionId && hudLines > 0) {
+    const sessionStatePath = join(BUDDY_DIR, 'state', `lw-${sessionId}.txt`);
+    let persisted = 0;
+    try {
+      const v = parseInt(readFileSync(sessionStatePath, 'utf-8'), 10);
+      if (Number.isFinite(v) && v > 0) persisted = v;
+    } catch {}
+    if (maxHudWidth > persisted) {
+      try {
+        mkdirSync(join(BUDDY_DIR, 'state'), { recursive: true });
+        writeFileSync(sessionStatePath, String(maxHudWidth));
+      } catch {}
+      leftWidth = maxHudWidth;
+    } else {
+      leftWidth = persisted;
+    }
+  }
 
   // 2026-04-10: Sanity check detected cols. If the HUD is wider than our detected
   // terminal width, the detection is unreliable (you can't have a HUD wider than

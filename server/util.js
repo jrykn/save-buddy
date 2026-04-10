@@ -41,6 +41,56 @@ export function stripAnsi(str) {
   );
 }
 
+// 2026-04-10: Terminal display width that handles wide Unicode characters.
+// String.length counts JS characters, not terminal columns. CJK ideographs,
+// Powerline/Nerd Font glyphs, and emoji occupy 2 columns each. This is critical
+// for statusline alignment when users have custom HUDs (starship, oh-my-posh,
+// tail-claude-hud) that use Nerd Font icons.
+export function visualWidth(str) {
+  const plain = stripAnsi(str);
+  let width = 0;
+  for (const ch of plain) {
+    const cp = ch.codePointAt(0);
+    if (
+      // CJK Unified Ideographs
+      (cp >= 0x4E00 && cp <= 0x9FFF) ||
+      // CJK Extension A-B
+      (cp >= 0x3400 && cp <= 0x4DBF) ||
+      (cp >= 0x20000 && cp <= 0x2A6DF) ||
+      // CJK Compatibility Ideographs
+      (cp >= 0xF900 && cp <= 0xFAFF) ||
+      // Fullwidth Forms
+      (cp >= 0xFF01 && cp <= 0xFF60) ||
+      (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+      // Hangul Syllables
+      (cp >= 0xAC00 && cp <= 0xD7AF) ||
+      // Powerline symbols (Private Use Area - common Nerd Font range)
+      (cp >= 0xE0A0 && cp <= 0xE0D4) ||
+      // Nerd Font extra symbols
+      (cp >= 0xE200 && cp <= 0xE2FF) ||
+      (cp >= 0xE700 && cp <= 0xE7FF) ||
+      (cp >= 0xE0B0 && cp <= 0xE0BF) ||
+      // Box drawing heavy + block elements that render wide in some fonts
+      // Emoji (most are width 2)
+      (cp >= 0x1F300 && cp <= 0x1F9FF) ||
+      (cp >= 0x2600 && cp <= 0x27BF)
+    ) {
+      width += 2;
+    } else if (
+      // Zero-width joiners, combining marks, variation selectors
+      (cp >= 0x0300 && cp <= 0x036F) ||
+      (cp >= 0xFE00 && cp <= 0xFE0F) ||
+      (cp >= 0xFE20 && cp <= 0xFE2F) ||
+      cp === 0x200B || cp === 0x200C || cp === 0x200D || cp === 0xFEFF
+    ) {
+      // Zero width - don't count
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
 export function wrap(text, width) {
   const inputLines = String(text || '').split('\n');
   const result = [];

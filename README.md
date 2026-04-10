@@ -26,16 +26,19 @@ save-buddy reimplements this pipeline and wires it into Claude Code through:
 
 Reactions come from the same `buddy_react` API endpoint that the native feature uses. This endpoint is not publicly documented by Anthropic and may be removed at any time. When the API is unavailable, local fallback templates keep your companion responsive - save-buddy degrades gracefully.
 
-## Installation
+## Quick install
 
 ```bash
-git clone https://github.com/jrykn/save-buddy.git
-cd save-buddy
-npm install
-node install.js
+git clone https://github.com/jrykn/save-buddy ~/.save-buddy && cd ~/.save-buddy && npm i && node install.js
 ```
 
 Restart Claude Code. Type `/buddy` to see your companion.
+
+### PowerShell (Windows)
+
+```powershell
+git clone https://github.com/jrykn/save-buddy $HOME/.save-buddy; cd $HOME/.save-buddy; npm i; node install.js
+```
 
 ### What the installer does
 
@@ -57,7 +60,7 @@ node install.js --dry-run
 ## Uninstallation
 
 ```bash
-node uninstall.js
+cd ~/.save-buddy && node uninstall.js
 ```
 
 This surgically removes only save-buddy's entries from your settings. Your previous status line is restored, other hooks and MCP servers are untouched, and your companion data is preserved.

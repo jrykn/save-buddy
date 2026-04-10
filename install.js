@@ -239,11 +239,12 @@ settings.statusLine = {
   ...(settings.statusLine || {}),
   type: 'command',
   command: wrapperCommand,
-  // 2026-04-10: refresh is required for buddy animation (idle sequence, blink,
-  // pet hearts). Without it, the statusline only updates on events. Minimum
-  // value Claude Code accepts is 1 (seconds). Native buddy used Ink's own
-  // render loop (~500ms), so refresh:1 is the closest we can match.
-  refresh: 1,
+  // 2026-04-10: refreshInterval (seconds) is required for buddy animation (idle
+  // sequence, blink, pet hearts). Without it, the statusline only updates on
+  // events. Minimum value Claude Code accepts is 1. Native buddy used Ink's own
+  // render loop (~500ms), so refreshInterval:1 is the closest we can match.
+  // Field name confirmed from Claude Code source: $?.statusLine?.refreshInterval
+  refreshInterval: 1,
 };
 console.log('Set statusLine command to save-buddy wrapper');
 

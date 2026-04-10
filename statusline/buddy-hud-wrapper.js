@@ -8,9 +8,9 @@ import { join } from 'path';
 import { bold, colorize, dim, italic, magenta } from '../server/ansi.js';
 import { getCompanion, isMuted } from '../server/companion.js';
 import { BUDDY_DIR, REACTION_PATH, STATE_PATH } from '../server/paths.js';
-import { renderBlink, renderBubble, renderFace, renderSprite } from '../server/sprites.js';
+import { renderBlink, renderBubble, renderSprite } from '../server/sprites.js';
 import { RARITY_STARS } from '../server/types.js';
-import { stripAnsi, truncateAnsi, visualWidth } from '../server/util.js';
+import { visualWidth } from '../server/util.js';
 
 const IDLE_SEQUENCE = [0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 2, 0, 0, 0];
 const PET_HEARTS = [
@@ -208,10 +208,6 @@ try {
   const hasActiveReaction = Boolean(reaction.text);
   const cappedReaction = reaction.text ? reaction.text.slice(0, 180) : '';
   const shouldDim = hasActiveReaction && reaction.age > 7000;
-  // 2026-04-10: Reactions may contain newlines. Strip them for inline contexts so
-  // they don't break the line-count invariant. The bubble rendering handles
-  // wrapping across multiple lines naturally, but inline uses get this clean version.
-  const inlineReaction = cappedReaction.replace(/\s*\n+\s*/g, ' ').trim();
 
   // 2026-04-10: CRITICAL - Claude Code's statusline is a fixed-height area determined
   // by the number of lines in the HUD output. If we output MORE lines than the HUD,
@@ -241,9 +237,16 @@ try {
 
     // Forensics reference (specs/2026-04-09-buddy-forensics-reference.md:1226):
     // native companion card rendered "species art, colored" in the rarity color.
-    if (state?.petHeartsUntil && Date.now() < state.petHeartsUntil) {
-      spriteBlock.push(magenta(PET_HEARTS[Math.floor(Date.now() / 500) % PET_HEARTS.length]));
-    }
+    //
+    // 2026-04-10: ALWAYS push a pet-hearts row (empty string when inactive) so
+    // spriteBlock has a stable row count regardless of pet state. Code-reviewer
+    // Finding 3: when hearts expired, spriteBlock shrunk from 8 to 7, the sprite
+    // shifted up by one row, and users saw a 1-row vertical jitter at heart
+    // fade-out. Pinning the heart row prevents the shift.
+    const petHeartsActive = state?.petHeartsUntil && Date.now() < state.petHeartsUntil;
+    spriteBlock.push(petHeartsActive
+      ? magenta(PET_HEARTS[Math.floor(Date.now() / 500) % PET_HEARTS.length])
+      : '');
     spriteLines.forEach((line) => spriteBlock.push(colorize(line, companion.rarity)));
     spriteBlock.push(`   ${bold(colorize(companion.name, companion.rarity))}`);
     spriteBlock.push(`   ${colorize(RARITY_STARS[companion.rarity] || '', companion.rarity)}`);
@@ -343,26 +346,20 @@ try {
   // Pad rightBlock with blank rows so every tick has the same right-side height.
   while (rightBlock.length < totalLines) rightBlock.push('');
 
+  // 2026-04-10: Unified output construction (code-reviewer Finding 1, 2, 11).
+  // Every row goes through the SAME formula: left padded to leftWidth, fixed
+  // 2-char gap, right padded by the equalize pass below. The previous version
+  // had three branches (right present, leftRaw only, fully blank) which produced
+  // rows with structurally different widths. The dead `truncateAnsi` branch is
+  // also gone - leftVisual is always <= leftWidth by definition (leftWidth is
+  // the max of all existingLines visualWidths), so the truncate path was unreachable.
   const output = [];
   for (let i = 0; i < totalLines; i += 1) {
     const leftRaw = existingLines[i] || '';
     const leftVisual = visualWidth(leftRaw);
-    const left = leftVisual <= leftWidth
-      ? `${leftRaw}${' '.repeat(leftWidth - leftVisual)}`
-      : truncateAnsi(leftRaw, leftWidth);
+    const left = `${leftRaw}${' '.repeat(Math.max(0, leftWidth - leftVisual))}`;
     const right = rightBlock[i] || '';
-    if (right) {
-      output.push(`${left}  ${right}`);
-    } else if (leftRaw) {
-      // HUD-only row (no buddy content beside it), padded to leftWidth so the
-      // visual width matches buddy rows below.
-      output.push(left);
-    } else {
-      // Fully blank padding row - emit padding spaces so it has the same visual
-      // width as content rows. Prevents stale chars from previous renders showing
-      // through when Claude Code's clear pass leaves trailing content.
-      output.push(' '.repeat(leftWidth));
-    }
+    output.push(`${left}  ${right}`);
   }
 
   // 2026-04-10: Equalize visual widths across all output lines so previous

@@ -3,7 +3,7 @@
 // buddy-hud-wrapper.js - Chains any existing statusline and appends buddy sprite + bubble.
 
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { bold, colorize, dim, italic, magenta } from '../server/ansi.js';
 import { getCompanion, isMuted } from '../server/companion.js';
@@ -233,11 +233,34 @@ try {
 
   const rightWidth = Math.max(...rightBlock.map((line) => visualWidth(line)), 0);
 
-  // Position the buddy to the right of the widest HUD line (2-char gap).
-  // When there's no HUD, leftWidth = 0 so the buddy renders at column 0.
+  // 2026-04-10: Position the buddy to the right of the widest HUD line (2-char
+  // gap). CRITICAL: leftWidth must be STABLE across renders, not just within
+  // a single render. If the HUD's max line width varies tick-to-tick (e.g., as
+  // numbers in the cost row grow, or activity indicators come and go), the
+  // buddy column shifts horizontally between renders. Claude Code's overwrite
+  // mechanism only clears the cells the new render writes to, so the OLD
+  // sprite at the OLD column survives as a "ghost" sprite. Result: user sees
+  // two sprites at different X offsets on the screen.
+  //
+  // Fix: persist the maximum leftWidth ever observed in this session to a
+  // state file. Each render uses max(currentMaxHud, persistedMax). The value
+  // only grows, never shrinks, so the sprite column stays put.
   let cols = detectTerminalWidth(stdin);
-  const maxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
-  let leftWidth = hudLines > 0 ? maxHudWidth : 0;
+  const currentMaxHudWidth = Math.max(...existingLines.map((l) => visualWidth(l)), 0);
+  const leftWidthStatePath = join(BUDDY_DIR, 'state', 'left-width.txt');
+  let persistedLeftWidth = 0;
+  try {
+    const v = parseInt(readFileSync(leftWidthStatePath, 'utf-8'), 10);
+    if (Number.isFinite(v) && v > 0) persistedLeftWidth = v;
+  } catch {}
+  let leftWidth = hudLines > 0 ? Math.max(currentMaxHudWidth, persistedLeftWidth) : 0;
+  if (leftWidth > persistedLeftWidth && hudLines > 0) {
+    try {
+      mkdirSync(join(BUDDY_DIR, 'state'), { recursive: true });
+      writeFileSync(leftWidthStatePath, String(leftWidth));
+    } catch {}
+  }
+  const maxHudWidth = currentMaxHudWidth; // keep alias for the cap check below
 
   // 2026-04-10: Sanity check detected cols. If the HUD is wider than our detected
   // terminal width, the detection is unreliable (you can't have a HUD wider than
@@ -284,15 +307,38 @@ try {
     if (right) {
       output.push(`${left}  ${right}`);
     } else if (leftRaw) {
-      // HUD-only row (no buddy content beside it)
-      output.push(leftRaw);
+      // HUD-only row (no buddy content beside it), padded to leftWidth so the
+      // visual width matches buddy rows below.
+      output.push(left);
     } else {
-      // Fully blank padding row - still counts as a line for stable height
-      output.push('');
+      // Fully blank padding row - emit padding spaces so it has the same visual
+      // width as content rows. Prevents stale chars from previous renders showing
+      // through when Claude Code's clear pass leaves trailing content.
+      output.push(' '.repeat(leftWidth));
     }
   }
 
-  process.stdout.write(`${output.join('\n')}\n`);
+  // 2026-04-10: CRITICAL - equalize visual width across all output lines AND
+  // prepend each line with \r + \x1b[K (carriage return + erase-to-end-of-line).
+  // The two-sprite duplication bug was caused by Claude Code's statusline
+  // overwrite mechanism leaving trailing characters from the previous render
+  // when subsequent renders had different per-line widths or when the cursor
+  // wasn't returned to column 0 between lines. Forcing every line to:
+  //   1. Start at column 0 (\r)
+  //   2. Erase from cursor to end of line (\x1b[K) before writing new content
+  //   3. Have the same visual width as every other line
+  // ...guarantees that no stale characters from the previous render bleed
+  // through, regardless of how Claude Code's positioning mechanism works.
+  const maxVisual = Math.max(...output.map((line) => visualWidth(line)), 0);
+  const equalized = output.map((line) => {
+    const padded = line + ' '.repeat(Math.max(0, maxVisual - visualWidth(line)));
+    // \r returns cursor to col 0, \x1b[2K erases the ENTIRE current line
+    // (not just from cursor to end). Together they guarantee no leftover
+    // characters from a previous render survive on this row.
+    return `\r\u001b[2K${padded}`;
+  });
+
+  process.stdout.write(`${equalized.join('\n')}\n`);
 } catch {
   try {
     const fallback = renderExistingOutput('');

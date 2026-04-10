@@ -1,6 +1,6 @@
 {
   "name": "save-buddy",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Preserve your Claude Code buddy companion after Anthropic removes the feature",
   "type": "module",
   "license": "MIT",

@@ -29,15 +29,27 @@ Reactions come from the same `buddy_react` API endpoint that the native feature 
 ## Quick install
 
 ```bash
-git clone https://github.com/jrykn/save-buddy ~/.save-buddy && cd ~/.save-buddy && npm i && node install.js
+npx save-buddy
 ```
 
 Restart Claude Code. Type `/buddy` to see your companion.
 
-### PowerShell (Windows)
+### Update
 
-```powershell
-git clone https://github.com/jrykn/save-buddy $HOME/.save-buddy; cd $HOME/.save-buddy; npm i; node install.js
+```bash
+npx save-buddy update
+```
+
+### Uninstall
+
+```bash
+npx save-buddy uninstall
+```
+
+### Manual install (alternative)
+
+```bash
+git clone https://github.com/jrykn/save-buddy ~/.save-buddy && cd ~/.save-buddy && npm i && node install.js
 ```
 
 ### What the installer does
@@ -55,12 +67,6 @@ Preview what the installer would do without writing any files:
 
 ```bash
 node install.js --dry-run
-```
-
-## Uninstallation
-
-```bash
-cd ~/.save-buddy && node uninstall.js
 ```
 
 This surgically removes only save-buddy's entries from your settings. Your previous status line is restored, other hooks and MCP servers are untouched, and your companion data is preserved.

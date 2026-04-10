@@ -4,10 +4,25 @@
   "description": "Preserve your Claude Code buddy companion after Anthropic removes the feature",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "save-buddy": "./cli.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/jrykn/save-buddy"
   },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "buddy",
+    "companion",
+    "mcp",
+    "statusline",
+    "ascii-art"
+  ],
+  "files": [
+    "cli.js"
+  ],
   "scripts": {
     "test": "node --test test/test-prng.js test/test-sprites.js test/test-util.js",
     "test:prng": "node --test test/test-prng.js",

@@ -236,6 +236,8 @@ save-buddy does not call the hatching API itself. If your companion was already 
 
 ## Reaction API
 
+> **Status update (~April 10, 2026):** The `buddy_react` endpoint documented below has been taken down by Anthropic. The endpoint still accepts requests and returns HTTP 200, but every response body is now `{"reaction":""}` - an empty string, with server-side response times of roughly 86ms confirming that no model inference is occurring. The `/buddy` command has also been removed from Claude Code itself in recent versions. This was independently observed by the [BonziClaude](https://github.com/zakarth/BonziClaude) project, which reverse-engineered the same endpoint. save-buddy detects the empty response and falls back to the local deterministic template bank in [`server/reactions.js`](server/reactions.js). A future workaround that routes reactions through Claude Haiku 4.5 via the standard public Claude API is planned; see the README status note and the cost FAQ for details. The rest of this section is preserved as a historical reference for the endpoint as it behaved from April 1 through early April 2026.
+
 The native buddy reaches out to an undocumented endpoint to generate reactions:
 
 ```

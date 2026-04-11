@@ -16,7 +16,7 @@ save-buddy captures everything about the buddy system - the deterministic compan
 >
 > The endpoint still accepts requests and returns HTTP 200, but every response body is now `{"reaction":""}` - an empty string, with server-side response times of roughly 86ms confirming that no model inference is occurring. The `/buddy` command has also been removed from Claude Code itself in recent versions. This was independently observed by the [BonziClaude](https://github.com/zakarth/BonziClaude) project, which reverse-engineered the same endpoint. save-buddy detects the empty response and **currently falls back to local deterministic reaction templates** (see [`server/reactions.js`](server/reactions.js)), so your companion keeps showing up, petting still works, the sprite still animates, and the speech bubble still appears. The bubble contents just come from a small template bank instead of live Claude inference.
 >
-> **Planned workaround: route reactions through Claude Haiku 4.5** via the standard Claude API using each user's existing OAuth token with a tight `max_tokens` cap. Haiku 4.5 generally outperforms the Claude 3.5 Sonnet that the original endpoint used, and is priced at $1 per million input tokens / $5 per million output tokens. At a realistic reaction size (~2,000 input tokens and ~100 output tokens per call), that works out to roughly **$0.0025 per reaction** - about **$1-2/month for typical use** (20-40 reactions/day) and **under $5/month for heavy use** (100+ reactions/day). The 30-second cooldown and event-gated triggers keep the volume bounded. This fallback is planned but **not implemented yet** and has **no specific timeline**; contributions are welcome. See the [FAQ on reaction cost](#will-this-cost-me-anything-in-tokens-or-money) for the full breakdown.
+> **Planned workaround: route reactions through Claude Haiku 4.5 on your existing Claude Code plan.** The plan is to reuse the same OAuth token Claude Code already manages and send reactions to Haiku 4.5 as a normal authenticated Claude request, so reactions come out of **your existing Claude subscription (Pro, Max, Team, or Enterprise)** rather than a separate pay-as-you-go API key. No new billing setup, no second account, no credit card. Haiku 4.5 generally outperforms the Claude 3.5 Sonnet that the original endpoint used, and each reaction is small (~2,000 input tokens and ~100 output tokens per call with the 30-second cooldown and event-gated triggers bounding volume), so the quota impact is a negligible slice of a typical plan. At Haiku 4.5 list pricing ($1/MTok input, $5/MTok output) the *monetary equivalent* works out to roughly **$0.0025 per reaction** - about **$1-2/month for typical use** (20-40 reactions/day), so you can sanity-check that it won't meaningfully dent any current Claude plan. This fallback is planned but **not implemented yet** and has **no specific timeline**; contributions are welcome. See the [FAQ on reaction cost](#will-this-cost-me-anything-in-tokens-or-money) for the full breakdown.
 
 ## Quick install
 
@@ -133,16 +133,22 @@ Bones are recomputed from the seed every time. Only the name and personality are
 
 ### Will this cost me anything in tokens or money?
 
-**Right now, nothing.** The `buddy_react` endpoint that save-buddy calls has been shut down by Anthropic as of April 2026 and returns an empty string, so save-buddy is falling back to local deterministic reaction templates. No tokens are consumed, no API is charged, no usage quota is touched. A planned future fallback to Claude Haiku 4.5 would cost roughly $1-2 per month for typical use.
+**Right now, nothing.** The `buddy_react` endpoint that save-buddy calls has been shut down by Anthropic as of April 2026 and returns an empty string, so save-buddy is falling back to local deterministic reaction templates. No tokens are consumed, no API is charged, no usage quota is touched. The planned future fallback routes reactions through Claude Haiku 4.5 **on your existing Claude subscription (Pro, Max, Team, or Enterprise) via OAuth** - not a separate pay-as-you-go API key - so there is no new bill to set up and no additional charge beyond your current Claude plan.
 
 <details>
 <summary><b>More detail, cost breakdown, and the planned Haiku 4.5 fallback</b></summary>
 
 **Current state (April 2026).** save-buddy calls `buddy_react` exactly as the native buddy did, with the same payload shape and the same OAuth-authenticated flow. The endpoint still accepts requests and still returns HTTP 200, but every response is `{"reaction":""}` - an empty string with no model inference happening server-side. Community research and server-side response times confirm the endpoint has been turned off rather than rate-limited. save-buddy detects the empty reaction and falls through to the local deterministic template bank in [`server/reactions.js`](server/reactions.js), so your companion keeps responding with no cost and no network round-trip to a model.
 
-**Planned Haiku 4.5 fallback.** The cleanest way to restore live model reactions is to route them through Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) via the standard public Claude API, reusing the OAuth token Claude Code already manages. Haiku 4.5 generally outperforms the Claude 3.5 Sonnet the original endpoint used, and is priced cheaply enough that the month-over-month cost is negligible for realistic usage.
+**Planned Haiku 4.5 fallback, on your existing Claude plan.** The plan is to reuse the same OAuth token Claude Code already manages and route reactions to Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) as a normal authenticated Claude request. This means:
 
-**Cost estimate.** Haiku 4.5 list pricing is $1 per million input tokens and $5 per million output tokens. A reaction call sends:
+- **No separate API key.** You do not need to create or pay for a pay-as-you-go API account. save-buddy uses the Claude Code OAuth session you already have.
+- **No separate bill.** Reactions come out of the usage quota that ships with your current Claude subscription (Pro, Max, Team, Enterprise, or whatever you are on), the same way Claude Code's own chat consumption does.
+- **No setup.** If Claude Code is already working on your machine, the fallback will just work - the OAuth credentials, the Anthropic endpoint, and the user agent are all things save-buddy already knows how to handle.
+
+Haiku 4.5 generally outperforms the Claude 3.5 Sonnet the original endpoint used, and is the cheapest first-party model in the Claude family, so the impact on your plan's usage quota is a small slice rather than a meaningful dent.
+
+**Quota sanity check (converted to list-price dollars).** Your plan is not billed per token, but it can help to convert usage to dollar-equivalent to check it will not eat your quota. Haiku 4.5 list pricing is $1 per million input tokens and $5 per million output tokens. A reaction call sends:
 
 - System prompt (~300 tokens)
 - Companion identity block (~100 tokens)
@@ -151,13 +157,13 @@ Bones are recomputed from the seed every time. Only the name and personality are
 
 That's roughly **2,000 input tokens per call**, with output capped at ~100 tokens (reactions are typically under 350 characters).
 
-| Daily volume | Per-month cost | Notes |
+| Daily volume | Dollar-equivalent/month | Notes |
 |---|---|---|
-| 20 reactions/day | ~$1.50/month | Typical light use |
-| 40 reactions/day | ~$3.00/month | Typical moderate use |
-| 100 reactions/day | ~$7.50/month | Heavy use, many errors/test-fails |
+| 20 reactions/day | ~$1.50 | Typical light use |
+| 40 reactions/day | ~$3.00 | Typical moderate use |
+| 100 reactions/day | ~$7.50 | Heavy use, many errors/test-fails |
 
-The 30-second cooldown between `turn` reactions and the event-gated triggers (test failures, errors, large diffs, addressed-by-name) keep the volume naturally bounded. In practice most users sit in the $1-2/month range.
+Those numbers are the pay-as-you-go price you would *not* be charged, because reactions will be drawn from your OAuth-authenticated Claude plan instead of a metered API key. The 30-second cooldown between `turn` reactions and the event-gated triggers (test failures, errors, large diffs, addressed-by-name) keep volume naturally bounded, so the actual quota impact for a typical user is tiny.
 
 **When will this ship?** No specific timeline. The fallback is planned and welcomed as a pull request. The reason it is not already implemented is that save-buddy's first priority has been faithfulness to the original experience, including the speech bubble flow and trigger cadence, and the local template bank is good enough to preserve the feeling of the companion while the endpoint is down. If you want to help ship it, the design is in [`server/api.js`](server/api.js) and the sketch lives in the status note at the top of this README.
 

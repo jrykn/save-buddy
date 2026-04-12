@@ -13,6 +13,7 @@ const DEFAULT_STATE = {
   lastReaction: null,
   lastCallTime: 0,
   recentReactions: [],
+  era1WarningSeen: false,
 };
 
 export function readState() {

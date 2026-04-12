@@ -8,7 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { callBuddyReact } from './api.js';
 import { renderCompanionCard } from './card.js';
-import { getCompanion } from './companion.js';
+import { detectEra1Mismatch, getCompanion } from './companion.js';
 import { REACTION_PATH, STATE_DIR } from './paths.js';
 import { localReaction } from './reactions.js';
 import { readState, writeState, pushRecent } from './state.js';
@@ -65,11 +65,20 @@ server.registerTool(
       };
     }
 
+    let era1Species = null;
+    if (!state.era1WarningSeen) {
+      era1Species = detectEra1Mismatch(companion);
+      if (era1Species) {
+        state.era1WarningSeen = true;
+        writeState(state);
+      }
+    }
+
     return {
       content: [
         {
           type: 'text',
-          text: renderCompanionCard(companion, state.lastReaction),
+          text: renderCompanionCard(companion, state.lastReaction, era1Species),
         },
       ],
     };

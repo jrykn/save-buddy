@@ -5,7 +5,7 @@ import { renderSprite } from './sprites.js';
 import { STAT_NAMES, RARITY_STARS } from './types.js';
 import { wrap } from './util.js';
 
-export function renderCompanionCard(companion, lastReaction) {
+export function renderCompanionCard(companion, lastReaction, era1Species = null) {
   const width = 38;
   const lines = [];
   const stars = RARITY_STARS[companion.rarity] || '';
@@ -35,6 +35,13 @@ export function renderCompanionCard(companion, lastReaction) {
   }
 
   lines.push(`\u2502${' '.repeat(width)}\u2502`);
+
+  if (era1Species) {
+    lines.push(`\u2502${'  \u26a0 possible species mismatch (see #2)'.padEnd(width)}\u2502`);
+    const detail = `  personality: ${era1Species} \u00b7 bones: ${companion.species}`;
+    lines.push(`\u2502${detail.padEnd(width)}\u2502`);
+    lines.push(`\u2502${' '.repeat(width)}\u2502`);
+  }
 
   for (const statName of STAT_NAMES) {
     const statValue = Number(companion.stats?.[statName] || 0);

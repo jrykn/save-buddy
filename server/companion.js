@@ -148,6 +148,26 @@ export function isMuted(state) {
   return !!state?.muted || isNativeMuted();
 }
 
+/**
+ * Detects when a companion's stored personality was written for a different
+ * species than the current algorithm produces (era 1 hatch mismatch).
+ * Uses lenient substring matching — the hatching prompt embedded the species
+ * name in the personality text, so "A patient penguin..." is a reliable signal.
+ *
+ * @param {object} companion - merged companion object with .personality and .species
+ * @returns {string|null} species name found in personality if it differs from bones, else null
+ */
+export function detectEra1Mismatch(companion) {
+  if (!companion?.personality || !companion?.species) return null;
+  const text = companion.personality.toLowerCase();
+  for (const s of SPECIES) {
+    if (s !== companion.species && text.includes(s)) {
+      return s;
+    }
+  }
+  return null;
+}
+
 export function getCompanion() {
   const stored = readCompanionConfig();
   if (!stored) {

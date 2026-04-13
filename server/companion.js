@@ -148,11 +148,18 @@ export function isMuted(state) {
   return !!state?.muted || isNativeMuted();
 }
 
+function inferSpeciesFromPersonality(personality) {
+  if (!personality) return null;
+  const lower = personality.toLowerCase();
+  return SPECIES.find(s => lower.includes(s)) ?? null;
+}
+
 export function getCompanion() {
   const stored = readCompanionConfig();
   if (!stored) {
     return null;
   }
   const { bones } = roll(companionUserId());
-  return { ...stored, ...bones };
+  const species = stored.species ?? inferSpeciesFromPersonality(stored.personality);
+  return { ...bones, ...stored, ...(species ? { species } : {}) };
 }

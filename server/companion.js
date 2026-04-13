@@ -148,11 +148,34 @@ export function isMuted(state) {
   return !!state?.muted || isNativeMuted();
 }
 
+// 2026-04-13: Detect when stored personality text names a different species than
+// computed bones. Returns the single mentioned species if exactly one non-matching
+// species is found via word-boundary regex; null otherwise. Used for advisory
+// warnings only - never to override PRNG species. (See issue #2.)
+export function detectSpeciesMismatch(companion) {
+  if (!companion?.personality || !companion?.species) return null;
+  const text = companion.personality.toLowerCase();
+  const found = [];
+  for (const s of SPECIES) {
+    if (s !== companion.species && new RegExp('\\b' + s + '\\b').test(text)) {
+      found.push(s);
+    }
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
 export function getCompanion() {
   const stored = readCompanionConfig();
   if (!stored) {
     return null;
   }
   const { bones } = roll(companionUserId());
-  return { ...stored, ...bones };
+  // 2026-04-13: Bones remain authoritative for all fields. If the user has
+  // explicitly set a valid species override in .claude.json (e.g. to restore
+  // an era 1 companion's original species), honor it. This is a targeted
+  // escape hatch, not a general customization mechanism. (See issue #2.)
+  const manualSpecies = stored.species
+    ? SPECIES.find((s) => s === String(stored.species).trim().toLowerCase())
+    : null;
+  return { ...stored, ...bones, ...(manualSpecies ? { species: manualSpecies } : {}) };
 }

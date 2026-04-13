@@ -5,7 +5,8 @@ import { renderSprite } from './sprites.js';
 import { STAT_NAMES, RARITY_STARS } from './types.js';
 import { wrap } from './util.js';
 
-export function renderCompanionCard(companion, lastReaction) {
+// 2026-04-13: Added optional mismatchSpecies parameter for era 1 advisory warning.
+export function renderCompanionCard(companion, lastReaction, mismatchSpecies = null) {
   const width = 38;
   const lines = [];
   const stars = RARITY_STARS[companion.rarity] || '';
@@ -35,6 +36,18 @@ export function renderCompanionCard(companion, lastReaction) {
   }
 
   lines.push(`\u2502${' '.repeat(width)}\u2502`);
+
+  // 2026-04-13: Persistent advisory warning when personality text names a species
+  // that differs from the computed bones. Factual, not causal. Actionable. (Issue #2.)
+  if (mismatchSpecies) {
+    for (const line of wrap(`Personality mentions ${mismatchSpecies}.`, width - 4)) {
+      lines.push(`\u2502${`  ${line}`.padEnd(width)}\u2502`);
+    }
+    for (const line of wrap(`Set "species": "${mismatchSpecies}" in companion config to override.`, width - 4)) {
+      lines.push(`\u2502${`  ${line}`.padEnd(width)}\u2502`);
+    }
+    lines.push(`\u2502${' '.repeat(width)}\u2502`);
+  }
 
   for (const statName of STAT_NAMES) {
     const statValue = Number(companion.stats?.[statName] || 0);

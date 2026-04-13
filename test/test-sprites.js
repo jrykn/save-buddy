@@ -164,4 +164,32 @@ describe('renderCompanionCard', () => {
     assert(card.includes('\u256d'), 'card should have top-left corner');
     assert(card.includes('\u256f'), 'card should have bottom-right corner');
   });
+
+  it('omits warning when mismatchSpecies is null', () => {
+    const card = renderCompanionCard(companion, null, null);
+    assert(!card.includes('Personality mentions'), 'no warning when species match');
+  });
+
+  it('shows persistent warning when mismatchSpecies is set', () => {
+    const card = renderCompanionCard(
+      { ...companion, species: 'rabbit' },
+      null,
+      'penguin',
+    );
+    assert(card.includes('Personality mentions penguin'), 'warning should name the personality species');
+    assert(card.includes('"species"'), 'warning should tell user how to fix');
+  });
+
+  it('warning does not break card width for longest species pair', () => {
+    const card = renderCompanionCard(
+      { ...companion, species: 'mushroom' },
+      null,
+      'capybara',
+    );
+    const lines = card.split('\n');
+    const expectedLen = lines[0].length;
+    for (let i = 0; i < lines.length; i += 1) {
+      assert.equal(lines[i].length, expectedLen, `line ${i} width mismatch: "${lines[i]}"`);
+    }
+  });
 });

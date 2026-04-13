@@ -11,6 +11,7 @@ import {
   companionUserId,
   readCompanionConfig,
   getCompanion,
+  detectSpeciesMismatch,
 } from '../server/companion.js';
 import { SPECIES, EYES, HATS, STAT_NAMES, RARITIES } from '../server/types.js';
 
@@ -147,6 +148,49 @@ describe('roll', () => {
   });
 });
 
+// --- detectSpeciesMismatch verification ---
+
+describe('detectSpeciesMismatch', () => {
+  it('detects era 1 mismatch (penguin personality, rabbit bones)', () => {
+    const companion = { personality: 'A patient penguin who watches every stack trace.', species: 'rabbit' };
+    assert.equal(detectSpeciesMismatch(companion), 'penguin');
+  });
+
+  it('returns null when personality matches species', () => {
+    const companion = { personality: 'A patient rabbit who watches every stack trace.', species: 'rabbit' };
+    assert.equal(detectSpeciesMismatch(companion), null);
+  });
+
+  it('does not false-positive on "cat" inside "catches"', () => {
+    const companion = { personality: 'A robot who catches bugs with preternatural patience.', species: 'robot' };
+    assert.equal(detectSpeciesMismatch(companion), null);
+  });
+
+  it('does not false-positive on "owl" inside "knowledge"', () => {
+    const companion = { personality: 'A knowledgeable turtle who educates junior developers.', species: 'turtle' };
+    assert.equal(detectSpeciesMismatch(companion), null);
+  });
+
+  it('returns null for ambiguous multi-species text', () => {
+    const companion = { personality: 'A duck-like owl that prefers the dark.', species: 'robot' };
+    assert.equal(detectSpeciesMismatch(companion), null);
+  });
+
+  it('returns null for null/missing personality', () => {
+    assert.equal(detectSpeciesMismatch({ species: 'robot' }), null);
+    assert.equal(detectSpeciesMismatch(null), null);
+    assert.equal(detectSpeciesMismatch({ personality: '', species: 'robot' }), null);
+  });
+
+  it('handles standalone species name as personality', () => {
+    assert.equal(detectSpeciesMismatch({ personality: 'penguin', species: 'robot' }), 'penguin');
+  });
+
+  it('is case insensitive', () => {
+    assert.equal(detectSpeciesMismatch({ personality: 'A PENGUIN who CODES.', species: 'robot' }), 'penguin');
+  });
+});
+
 // --- Live companion verification (skipped if no config) ---
 
 describe('live companion', () => {
@@ -157,8 +201,17 @@ describe('live companion', () => {
     const companion = getCompanion();
     const { bones } = roll(userId);
 
-    // The critical assertion: regenerated bones match the stored companion
-    assert.equal(bones.species, companion.species, 'species mismatch');
+    // 2026-04-13: If stored has an explicit species override, companion.species
+    // may differ from bones.species (intentional - see issue #2). All other
+    // bone fields remain PRNG-authoritative.
+    const storedSpecies = stored.species
+      ? SPECIES.find((s) => s === String(stored.species).trim().toLowerCase())
+      : null;
+    if (storedSpecies) {
+      assert.equal(companion.species, storedSpecies, 'stored species override should win');
+    } else {
+      assert.equal(bones.species, companion.species, 'species mismatch');
+    }
     assert.equal(bones.rarity, companion.rarity, 'rarity mismatch');
     assert.equal(bones.eye, companion.eye, 'eye mismatch');
     assert.equal(bones.hat, companion.hat, 'hat mismatch');

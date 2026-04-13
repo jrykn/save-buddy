@@ -8,7 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { callBuddyReact } from './api.js';
 import { renderCompanionCard } from './card.js';
-import { getCompanion } from './companion.js';
+import { detectSpeciesMismatch, getCompanion } from './companion.js';
 import { REACTION_PATH, STATE_DIR } from './paths.js';
 import { localReaction } from './reactions.js';
 import { readState, writeState, pushRecent } from './state.js';
@@ -65,11 +65,16 @@ server.registerTool(
       };
     }
 
+    // 2026-04-13: Detect species mismatch for advisory warning. Recomputed every
+    // render from current data - no persistent flag, no state mutation from a read
+    // action. Warning disappears once the user sets a manual species override.
+    const mismatchSpecies = detectSpeciesMismatch(companion);
+
     return {
       content: [
         {
           type: 'text',
-          text: renderCompanionCard(companion, state.lastReaction),
+          text: renderCompanionCard(companion, state.lastReaction, mismatchSpecies),
         },
       ],
     };
